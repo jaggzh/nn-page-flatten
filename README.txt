@@ -1,9 +1,9 @@
 Project with a set of images for training a neural network to flatten
 (and enhance) the images.
 
-  Ideal flattened pages are located at:
+  "Ideal" flattened pages are located at:
     blend/ideal/
-  Warped page images are located at:
+  Warped/bent page images are located at:
     blend/pages/
   Source words (not used except to generate images) are found in:
     blend/words.txt
@@ -13,29 +13,27 @@ Project with a set of images for training a neural network to flatten
 Naming convention:
 
 A checksum of the text used to create the image sets are used as unique
-identifiers, this allows us to relate the specific bent and curved images to
+identifiers, this allows us to relate the specific bent and flattened images to
 each other.
 
 For example, the random words, "Reva's unmask Afro freaky" (separated by
 newlines) ends up being "4b8ba00fb963994e".
 
-Thus, we have a set of curved images, like:
+A single flattened version of a page with the text is then stored at:
+  ./blend/ideal/4b8ba00fb963994e/0001.png
+  (In the future I might create many ideal versions for training)
+
+Then many bent versions of the page are stored as:
   ./blend/pages/4b8ba00fb963994e/0000.png
   ./blend/pages/4b8ba00fb963994e/0001.png
   ...
   ./blend/pages/4b8ba00fb963994e/0099.png
 
-The ideal flattened versions are found as:
-  ./blend/ideal/4b8ba00fb963994e/0001.png
-
-I currently generate just a single ideal image.
-
 *Important note:
-  ALL the images in the pages/4b8ba00fb963994e/ folder relate to the
-   flattened ideal/4b8ba00fb963994e/ image(s);
-  the point being that THE NUMBERING OF THE IMAGES IS NOT RELEVANT AT ALL,
-  so, pages/whatever/0001.jpg, 0002.jpg, etc. are all just bent versions
-  of ideal/whatever/0001.jpg, and the 0001.jpg in either folder does not
-  reflect a special relationship between those numbers.
+  The sequential numbering within the folders expresses no special
+  relationship.  Thus, pages/.../0001.png is just one version of a
+  bent page, just like 0002.png, and the ideal/.../0001.png is a flattened
+  version of both 0001.jpg and 0002.jpg (and all the others in that
+  corresponding pages/.../ folder).
 
 Questions go to: jaggz.h at g mail com
