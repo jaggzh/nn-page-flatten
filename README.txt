@@ -37,3 +37,4 @@ Then many bent versions of the page are stored as:
   corresponding pages/.../ folder).
 
 Questions go to: jaggz.h at g mail com
+Or: jaggz@freenode
