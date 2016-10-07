@@ -64,7 +64,21 @@ def train_nn(model):
 	for imgid in imgids:
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
-		print(bent_imgs)
+		for ideal in ideal_imgs:
+			img = load_img(ideal)  # PIL image
+			y = img_to_array(img)  # Numpy array with shape (1, 150, 150)
+			y = y.reshape((1,) + y.shape)  # Numpy array with shape (1, 1, 150, 150)
+			for bent in bent_imgs:
+				print("Training bent->ideal\n     " + bent + "\n  -> " + ideal)
+				img = load_img(bent)  # PIL image
+				x = img_to_array(img)  # Numpy array with shape (1, 150, 150)
+				x = x.reshape((1,) + x.shape)  # Numpy array with shape (1, 3, 150, 150)
+				i = 0
+				for batch in datagen.flow(x, batch_size=1):
+					model.fit()
+					i += 1
+					if i > 20:
+						break  # otherwise the generator would loop indefinitely
 
 init()
 load_imgnames()
