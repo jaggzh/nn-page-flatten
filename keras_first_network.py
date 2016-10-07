@@ -84,7 +84,7 @@ def train_nn(model):
 				for batch in datagen.flow(x, batch_size=2):
 					print(batch)
 					print("-- Fitting ----------------\n")
-					history = model.fit(x, y, batch_size=2, nb_epoch=2, verbose=1)
+					history = model.fit(batch, y, batch_size=2, nb_epoch=2, verbose=1)
 					print("-- Fitting History --------\n")
 					print(history.history)
 					i += 1
