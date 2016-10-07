@@ -8,10 +8,16 @@ import sys
 from os import listdir
 from os.path import isdir, isfile, join
 
+#from keras.datasets import cifar10
+#(X_train, y_train), (X_test, y_test) = cifar10.load_data()
+#print(X_train)
+#sys.exit(0)
+
 bent_dir = "blend/pages"
 ideal_dir = "blend/ideal"
 imgids=[]
 verbose=0
+datagen=None
 
 ## Functions
 def eprint(*args, **kwargs):
@@ -41,6 +47,7 @@ def init():
 		zoom_range=0.1,
 		horizontal_flip=False,
 		fill_mode='nearest')
+	return datagen
 def create_nn():
 	model = Sequential()
 	model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
@@ -74,13 +81,17 @@ def train_nn(model):
 				x = img_to_array(img)  # Numpy array with shape (1, 150, 150)
 				x = x.reshape((1,) + x.shape)  # Numpy array with shape (1, 3, 150, 150)
 				i = 0
-				for batch in datagen.flow(x, batch_size=1):
-					model.fit()
+				for batch in datagen.flow(x, batch_size=2):
+					print(batch)
+					print("-- Fitting ----------------\n")
+					history = model.fit(x, y, batch_size=2, nb_epoch=2, verbose=1)
+					print("-- Fitting History --------\n")
+					print(history.history)
 					i += 1
 					if i > 20:
 						break  # otherwise the generator would loop indefinitely
 
-init()
+datagen = init()
 load_imgnames()
 model = create_nn()
 train_nn(model)
