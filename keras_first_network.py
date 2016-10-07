@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import print_function # For eprint
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Flatten, Convolution2D
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 import numpy as np
 import sys
@@ -18,6 +18,8 @@ ideal_dir = "blend/ideal"
 imgids=[]
 verbose=0
 datagen=None
+img_width=67
+img_height=67
 
 ## Functions
 def eprint(*args, **kwargs):
@@ -50,8 +52,12 @@ def init():
 	return datagen
 def create_nn():
 	model = Sequential()
-	model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
-	model.add(Dense(8, init='uniform', activation='relu'))
+	model.add(
+		Convolution2D(64, 3, 3,
+			border_mode='same', input_shape=(1, img_width, img_height)))
+	model.add(Flatten())
+	#model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
+	#model.add(Dense(8, init='uniform', activation='relu'))
 	# Compile model
 	model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
 	return model
@@ -74,14 +80,18 @@ def train_nn(model):
 		for ideal in ideal_imgs:
 			img = load_img(ideal)  # PIL image
 			y = img_to_array(img)  # Numpy array with shape (1, 150, 150)
+			print("Output Image")
+			print(y)
 			y = y.reshape((1,) + y.shape)  # Numpy array with shape (1, 1, 150, 150)
+			print("Output Image")
+			print(y)
 			for bent in bent_imgs:
 				print("Training bent->ideal\n     " + bent + "\n  -> " + ideal)
 				img = load_img(bent)  # PIL image
 				x = img_to_array(img)  # Numpy array with shape (1, 150, 150)
 				x = x.reshape((1,) + x.shape)  # Numpy array with shape (1, 3, 150, 150)
 				i = 0
-				for batch in datagen.flow(x, batch_size=2):
+				for batch in datagen.flow(x, batch_size=10):
 					print(batch)
 					print("-- Fitting ----------------\n")
 					history = model.fit(batch, y, batch_size=2, nb_epoch=2, verbose=1)
