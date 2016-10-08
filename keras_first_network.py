@@ -22,6 +22,8 @@ img_width=67
 img_height=67
 
 ## Functions
+def exit(ec):
+	sys.exit(0)
 def eprint(*args, **kwargs):
 	print(*args, file=sys.stderr, **kwargs)
 def vprint(verbosity, *args, **kwargs):
@@ -53,9 +55,8 @@ def init():
 def create_nn():
 	model = Sequential()
 	model.add(
-		Convolution2D(64, 3, 3,
-			border_mode='same', input_shape=(1, img_width, img_height)))
-	model.add(Flatten())
+		Convolution2D(64, 3, 3, border_mode='same', input_shape=(3, img_width, img_height)))
+	#model.add(Flatten())
 	#model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
 	#model.add(Dense(8, init='uniform', activation='relu'))
 	# Compile model
@@ -81,7 +82,6 @@ def train_nn(model):
 			img = load_img(ideal)  # PIL image
 			y = img_to_array(img)  # Numpy array with shape (1, 150, 150)
 			print("Output Image")
-			print(y)
 			y = y.reshape((1,) + y.shape)  # Numpy array with shape (1, 1, 150, 150)
 			print("Output Image")
 			print(y)
