@@ -55,7 +55,13 @@ def init():
 def create_nn():
 	model = Sequential()
 	model.add(
-		Convolution2D(64, 3, 3, border_mode='same', input_shape=(3, img_width, img_height)))
+		Convolution2D(
+			64, 3, 3, border_mode='same',
+			input_shape=(3, img_width, img_height),
+			subsample=(2, 2)))
+	model.add(
+		MaxPooling2D(pool_size=(2, 2), strides=None,
+			border_mode='valid', dim_ordering='default')
 	#model.add(Flatten())
 	#model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
 	#model.add(Dense(8, init='uniform', activation='relu'))
