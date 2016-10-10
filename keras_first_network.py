@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import print_function # For eprint
-from keras.models import Sequential
-from keras.layers import Dense, Flatten, Convolution2D
+from keras.models import Sequential, Model
+from keras.layers import Dense, Flatten, Convolution2D, MaxPooling2D, Input
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 import numpy as np
 import sys
@@ -53,15 +53,17 @@ def init():
 		fill_mode='nearest')
 	return datagen
 def create_nn():
+	inputs = Input(shape = (1, 3, 67, 67))
+	x = Dense(64, activation='relu')(inputs)
+	x = Dense(64, activation='relu')(x)
+	predictions = Dense(
+	model = 
 	model = Sequential()
 	model.add(
-		Convolution2D(
-			64, 3, 3, border_mode='same',
-			input_shape=(3, img_width, img_height),
-			subsample=(2, 2)))
-	model.add(
-		MaxPooling2D(pool_size=(2, 2), strides=None,
-			border_mode='valid', dim_ordering='default')
+		Convolution2D(64, 3, 3, border_mode='same', input_shape=(3, img_width, img_height), subsample=(2, 2)))
+	#model.add(
+		#MaxPooling2D(pool_size=(2, 2), strides=None,
+			#border_mode='valid', dim_ordering='default'))
 	#model.add(Flatten())
 	#model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
 	#model.add(Dense(8, init='uniform', activation='relu'))
@@ -81,6 +83,8 @@ def imgset_ideal(id):
 def imgset_bent(id):
 	return imgset_from_dir(bent_dir, id)
 def train_nn(model):
+	x = None
+	y = None
 	for imgid in imgids:
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
@@ -106,6 +110,8 @@ def train_nn(model):
 					i += 1
 					if i > 20:
 						break  # otherwise the generator would loop indefinitely
+	scores = model.evaluate(x,y)
+	print("%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
 
 datagen = init()
 load_imgnames()
@@ -121,7 +127,7 @@ dataset = np.loadtxt("pima-indians-diabetes.data.csv", delimiter=",")
 X = dataset[:,0:8]
 Y = dataset[:,8]
 
-pile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
 
 # Fit the model
 model.fit(X, Y, nb_epoch=150, batch_size=10)
