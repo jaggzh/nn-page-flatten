@@ -53,22 +53,20 @@ def init():
 		fill_mode='nearest')
 	return datagen
 def create_nn():
-	inputs = Input(shape = (1, 3, 67, 67))
-	x = Dense(64, activation='relu')(inputs)
-	x = Dense(64, activation='relu')(x)
-	predictions = Dense(
-	model = 
-	model = Sequential()
-	model.add(
-		Convolution2D(64, 3, 3, border_mode='same', input_shape=(3, img_width, img_height), subsample=(2, 2)))
-	#model.add(
+	inputs = Input(shape = (3, 67, 67))
+	x = Convolution2D(64, 3, 3, border_mode='same', input_shape=(3, 67, 67), subsample=(2, 2))(inputs)
+	#predictions = Dense(10, activation='softmax')(x)
+	model = Model(input=inputs, output=x)
+	model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+	# Old
+	#model = Sequential()
+	##model.add(
 		#MaxPooling2D(pool_size=(2, 2), strides=None,
 			#border_mode='valid', dim_ordering='default'))
 	#model.add(Flatten())
 	#model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
 	#model.add(Dense(8, init='uniform', activation='relu'))
-	# Compile model
-	model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
 	return model
 def imgset_from_dir(dir, id):
 	imgset=[]
