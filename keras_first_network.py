@@ -1,6 +1,6 @@
 #!/usr/bin/python
 from __future__ import print_function # For eprint
-from keras.models import Sequential, Model
+from keras.models import Sequential, Model # , load_weights, save_weights
 from keras.layers import Dense, Flatten, Convolution2D, MaxPooling2D, Input
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 import numpy as np
@@ -13,13 +13,19 @@ from os.path import isdir, isfile, join
 #print(X_train)
 #sys.exit(0)
 
+weight_store = "weights.h5"
 bent_dir = "blend/pages"
 ideal_dir = "blend/ideal"
 imgids=[]
 verbose=0
-datagen=None
+datagen_input=None
+datagen_output=None
 img_width=67
 img_height=67
+max_imagesets=50 # imageset = Each unique page of words (bent or flat)
+train_epochs=1
+out_batch_versions=3 # number of distorted images to feed in
+in_batch_versions=3 # number of distorted images to feed in
 
 ## Functions
 def exit(ec):
@@ -35,15 +41,19 @@ def imgs_add(name):
 	imgids.append(name)
 def load_imgnames():
 	vprint(2, "Opening " + bent_dir + "\n")
+	i = 0
 	for d in listdir(bent_dir):
+		i = i+1
 		ifile=join(bent_dir, d)
 		if isdir(ifile):
 			imgs_add(d)
+		if i > max_imagesets:
+			break
 def init():
 	# fix random seed for reproducibility
 	seed = 7
 	np.random.seed(seed)
-	datagen = ImageDataGenerator(
+	datagen_input = ImageDataGenerator(
 		rotation_range=1,
 		width_shift_range=0.1,
 		height_shift_range=0.1,
@@ -51,13 +61,23 @@ def init():
 		zoom_range=0.1,
 		horizontal_flip=False,
 		fill_mode='nearest')
-	return datagen
+	datagen_output = ImageDataGenerator(
+		rotation_range=1,
+		width_shift_range=0.1,
+		height_shift_range=0.1,
+		shear_range=0.1,
+		zoom_range=0.1,
+		horizontal_flip=False,
+		fill_mode='nearest')
+	return datagen_input, datagen_output
 def create_nn():
 	inputs = Input(shape = (3, 67, 67))
-	x = Convolution2D(3, 3, 3, border_mode='same', subsample=(2, 2))(inputs)
-	#predictions = Dense(10, activation='softmax')(x)
+	x = Convolution2D(3, 3, 3, border_mode='same')(inputs)
 	model = Model(input=inputs, output=x)
-	model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+	model.compile(loss='mean_absolute_error', optimizer='adam', metrics=['accuracy'])
+	if isfile(weight_store):
+		model.load_weights(weight_store)
+	#predictions = Dense(10, activation='softmax')(x)
 
 	# Old
 	#model = Sequential()
@@ -87,34 +107,40 @@ def train_nn(model):
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
 		for ideal in ideal_imgs:
+			print("Training " + ideal)
 			img = load_img(ideal)  # PIL image
 			y = img_to_array(img)  # Numpy array with shape (1, 150, 150)
-			print("Output Image")
+			#print("Output Image")
 			y = y.reshape((1,) + y.shape)  # Numpy array with shape (1, 1, 150, 150)
-			print("Output Image")
-			print(y)
-			for bent in bent_imgs:
-				print("Training bent->ideal\n     " + bent + "\n  -> " + ideal)
-				img = load_img(bent)  # PIL image
-				x = img_to_array(img)  # Numpy array with shape (1, 150, 150)
-				x = x.reshape((1,) + x.shape)  # Numpy array with shape (1, 3, 150, 150)
-				i = 0
-				for batch in datagen.flow(x, batch_size=10):
-					print(batch)
-					print("-- Fitting ----------------\n")
-					history = model.fit(batch, y, batch_size=2, nb_epoch=2, verbose=1)
-					print("-- Fitting History --------\n")
-					print(history.history)
-					i += 1
-					if i > 20:
-						break  # otherwise the generator would loop indefinitely
-	scores = model.evaluate(x,y)
-	print("%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
+			#print("Output Image")
+			#print(y)
+			j = 0
+			for out_batch in datagen_output.flow(y, batch_size=1):
+				j += 1
+				if j > out_batch_versions:
+					break
+				for bent in bent_imgs:
+					img = load_img(bent)  # PIL image
+					x = img_to_array(img)  # Numpy array with shape (1, 150, 150)
+					x = x.reshape((1,) + x.shape)  # Numpy array with shape (1, 3, 150, 150)
+					i = 0
+					for in_batch in datagen_input.flow(x, batch_size=10):
+						i += 1
+						if i > in_batch_versions:
+							break  # otherwise the generator would loop indefinitely
+						#print(in_batch)
+						#print("-- Fitting ----------------\n")
+						history = model.fit(in_batch, out_batch, batch_size=2, nb_epoch=train_epochs, verbose=0)
+						#print("-- Fitting History --------\n")
+						#print(history.history)
+				scores = model.evaluate(x,y)
+				print("\033[33;1m%s: %.2f%%\033[0m" % (model.metrics_names[1], scores[1]*100))
 
-datagen = init()
+datagen_input, datagen_output = init()
 load_imgnames()
 model = create_nn()
 train_nn(model)
+model.save_weights(weight_store)
 sys.exit(0)
 
 #onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
