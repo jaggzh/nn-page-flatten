@@ -133,6 +133,9 @@ def train_nn(model):
 						history = model.fit(in_batch, out_batch, batch_size=2, nb_epoch=train_epochs, verbose=0)
 						#print("-- Fitting History --------\n")
 						#print(history.history)
+						prediction = model.predict(x)
+						print(prediction)
+						exit(0)
 				scores = model.evaluate(x,y)
 				print("\033[33;1m%s: %.2f%%\033[0m" % (model.metrics_names[1], scores[1]*100))
 
