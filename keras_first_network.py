@@ -54,7 +54,7 @@ def init():
 	return datagen
 def create_nn():
 	inputs = Input(shape = (3, 67, 67))
-	x = Convolution2D(64, 3, 3, border_mode='same', input_shape=(3, 67, 67), subsample=(2, 2))(inputs)
+	x = Convolution2D(3, 3, 3, border_mode='same', subsample=(2, 2))(inputs)
 	#predictions = Dense(10, activation='softmax')(x)
 	model = Model(input=inputs, output=x)
 	model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
