@@ -22,10 +22,11 @@ datagen_input=None
 datagen_output=None
 img_width=67
 img_height=67
-max_imagesets=50 # imageset = Each unique page of words (bent or flat)
+max_imagesets=100 # imageset = Each unique page of words (bent or flat)
 train_epochs=1
 out_batch_versions=3 # number of distorted images to feed in
 in_batch_versions=3 # number of distorted images to feed in
+load_weights=0      # load prior run stored weights
 
 ## Functions
 def exit(ec):
@@ -73,10 +74,17 @@ def init():
 def create_nn():
 	inputs = Input(shape = (3, 67, 67))
 	x = Convolution2D(3, 3, 3, border_mode='same')(inputs)
+
+	#x = Dense(1000, input_dim=4, init='uniform', activation='relu')(inputs)
+	#x = Dense(1000, input_dim=3, init='uniform', activation='relu')(inputs)
+	#model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
+	#x = Convolution2D(3, 3, 3, border_mode='same')(x)
+
 	model = Model(input=inputs, output=x)
 	model.compile(loss='mean_absolute_error', optimizer='adam', metrics=['accuracy'])
-	if isfile(weight_store):
+	if load_weights and isfile(weight_store):
 		model.load_weights(weight_store)
+
 	#predictions = Dense(10, activation='softmax')(x)
 
 	# Old
@@ -124,7 +132,7 @@ def train_nn(model):
 					x = img_to_array(img)  # Numpy array with shape (1, 150, 150)
 					x = x.reshape((1,) + x.shape)  # Numpy array with shape (1, 3, 150, 150)
 					i = 0
-					for in_batch in datagen_input.flow(x, batch_size=10):
+					for in_batch in datagen_input.flow(x, batch_size=2):
 						i += 1
 						if i > in_batch_versions:
 							break  # otherwise the generator would loop indefinitely
@@ -133,9 +141,9 @@ def train_nn(model):
 						history = model.fit(in_batch, out_batch, batch_size=2, nb_epoch=train_epochs, verbose=0)
 						#print("-- Fitting History --------\n")
 						#print(history.history)
-						prediction = model.predict(x)
-						print(prediction)
-						exit(0)
+						#prediction = model.predict(x)
+						#print(prediction)
+						#exit(0)
 				scores = model.evaluate(x,y)
 				print("\033[33;1m%s: %.2f%%\033[0m" % (model.metrics_names[1], scores[1]*100))
 
