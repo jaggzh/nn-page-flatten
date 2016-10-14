@@ -1,12 +1,15 @@
 #!/usr/bin/python
 from __future__ import print_function # For eprint
 from keras.models import Sequential, Model # , load_weights, save_weights
-from keras.layers import Dense, Flatten, Convolution2D, MaxPooling2D, Input
+from keras.layers import Dense, Reshape, Flatten, Convolution2D, MaxPooling2D, Input
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 import numpy as np
 import sys
 from os import listdir
 from os.path import isdir, isfile, join
+import matplotlib.pyplot as plt
+import random
+
 
 #from keras.datasets import cifar10
 #(X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -16,17 +19,19 @@ from os.path import isdir, isfile, join
 weight_store = "weights.h5"
 bent_dir = "blend/pages"
 ideal_dir = "blend/ideal"
-imgids=[]
+img_ids=[]
 verbose=0
 datagen_input=None
 datagen_output=None
 img_width=67
 img_height=67
 max_imagesets=100 # imageset = Each unique page of words (bent or flat)
+max_main_imgloops = 100 # Number of times to loop through entire set of images
 train_epochs=1
 out_batch_versions=3 # number of distorted images to feed in
 in_batch_versions=3 # number of distorted images to feed in
 load_weights=0      # load prior run stored weights
+test_perc = 7
 
 ## Functions
 def exit(ec):
@@ -36,19 +41,18 @@ def eprint(*args, **kwargs):
 def vprint(verbosity, *args, **kwargs):
 	if (verbose >= verbosity):
 		print(*args, **kwargs)
-def imgs_add(name):
-	if not isdir(join(ideal_dir, name)):
-		eprint("Dir " + name + " does not exist in ideal folder: " + ideal_dir)
-	imgids.append(name)
 def load_imgnames():
 	vprint(2, "Opening " + bent_dir + "\n")
 	i = 0
 	for d in listdir(bent_dir):
 		i = i+1
 		ifile=join(bent_dir, d)
-		if isdir(ifile):
-			imgs_add(d)
-		if i > max_imagesets:
+		if isdir(ifile):        # Valid bent_images dir
+			                    # ...corresponding to valid ideal_image dir
+			if not isdir(join(ideal_dir, name)):
+				eprint("Dir " + name + " not in ideal folder: " + ideal_dir)
+			img_ids.append(name)
+		if max_imagesets > 0 and i > max_imagesets:
 			break
 def init():
 	# fix random seed for reproducibility
@@ -71,9 +75,27 @@ def init():
 		horizontal_flip=False,
 		fill_mode='nearest')
 	return datagen_input, datagen_output
+def imgset_from_dir(dir, id):
+	imgset=[]
+	imgdir=join(dir, id)
+	for f in listdir(imgdir):
+		path = join(imgdir, f)
+		if isfile(path):
+			imgset.append(path)
+	return imgset
+def imgset_ideal(id):
+	return imgset_from_dir(ideal_dir, id)
+def imgset_bent(id):
+	return imgset_from_dir(bent_dir, id)
 def create_nn():
 	inputs = Input(shape = (3, 67, 67))
-	x = Convolution2D(3, 3, 3, border_mode='same')(inputs)
+	x = Flatten()(inputs)
+	x = Dense(100)(x)
+	x = Dense(100)(x)
+	x = Dense(3*67*67)(x)
+	x = Reshape((3, 67, 67))(x)
+	#x = Convolution2D(16, 3, 3, activation='relu', border_mode='same')(inputs)
+	#x = MaxPooling2D((2,2), border_mode='same')(x)
 
 	#x = Dense(1000, input_dim=4, init='uniform', activation='relu')(inputs)
 	#x = Dense(1000, input_dim=3, init='uniform', activation='relu')(inputs)
@@ -96,28 +118,27 @@ def create_nn():
 	#model.add(Dense(12, input_dim=8, init='uniform', activation='relu'))
 	#model.add(Dense(8, init='uniform', activation='relu'))
 	return model
-def imgset_from_dir(dir, id):
-	imgset=[]
-	imgdir=join(dir, id)
-	for f in listdir(imgdir):
-		path = join(imgdir, f)
-		if isfile(path):
-			imgset.append(path)
-	return imgset
-def imgset_ideal(id):
-	return imgset_from_dir(ideal_dir, id)
-def imgset_bent(id):
-	return imgset_from_dir(bent_dir, id)
+def view_img(img):
+	plt.figure(figsize=(4,4))
+	print(img)
+	plt.ion()
+	plt.imshow(img)
+	plt.draw()
+	#exit(0)
 def train_nn(model):
 	x = None
 	y = None
-	for imgid in imgids:
+	total_train = 0
+	for our_epochs in range(max_main_imgloops):
+	for imgid in img_ids:
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
 		for ideal in ideal_imgs:
 			print("Training " + ideal)
 			img = load_img(ideal)  # PIL image
 			y = img_to_array(img)  # Numpy array with shape (1, 150, 150)
+			print(y)
+			#view_img(img)
 			#print("Output Image")
 			y = y.reshape((1,) + y.shape)  # Numpy array with shape (1, 1, 150, 150)
 			#print("Output Image")
@@ -139,13 +160,19 @@ def train_nn(model):
 						#print(in_batch)
 						#print("-- Fitting ----------------\n")
 						history = model.fit(in_batch, out_batch, batch_size=2, nb_epoch=train_epochs, verbose=0)
+						total_train += 1
 						#print("-- Fitting History --------\n")
 						#print(history.history)
-						#prediction = model.predict(x)
+						if not (total_train % 10):
+							print("Trained: {}".format(total_train))
+						if not (total_train % 5000):
+							prediction = model.predict(x)
+							print(prediction[0][0])
+							view_img(prediction[0][0])
 						#print(prediction)
 						#exit(0)
-				scores = model.evaluate(x,y)
-				print("\033[33;1m%s: %.2f%%\033[0m" % (model.metrics_names[1], scores[1]*100))
+						#scores = model.evaluate(in_batch,out_batch)
+						#print("\033[33;1m%s: %.2f%%\033[0m" % (model.metrics_names[1], scores[1]*100))
 
 datagen_input, datagen_output = init()
 load_imgnames()
