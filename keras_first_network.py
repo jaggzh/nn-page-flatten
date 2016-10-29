@@ -1,8 +1,9 @@
 #!/usr/bin/python
 from __future__ import print_function # For eprint
 from keras.models import Sequential, Model # , load_weights, save_weights
-from keras.layers import Dense, Reshape, Flatten, Convolution2D, MaxPooling2D, Input
+from keras.layers import Dense, Reshape, UpSampling2D, Flatten, Convolution2D, Deconvolution2D, MaxPooling2D, Input
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
+from keras.utils.layer_utils import print_summary
 import numpy as np
 import sys
 from os import listdir
@@ -19,19 +20,20 @@ import random
 weight_store = "weights.h5"
 bent_dir = "blend/pages"
 ideal_dir = "blend/ideal"
-img_ids=[]
+img_ids_train=[]
+img_ids_test=[]
 verbose=0
 datagen_input=None
 datagen_output=None
 img_width=67
 img_height=67
 max_imagesets=100 # imageset = Each unique page of words (bent or flat)
-max_main_imgloops = 100 # Number of times to loop through entire set of images
+#max_main_imgloops = 100 # Number of times to loop through entire set of images
 train_epochs=1
 out_batch_versions=3 # number of distorted images to feed in
 in_batch_versions=3 # number of distorted images to feed in
 load_weights=0      # load prior run stored weights
-test_perc = 7
+test_fraction = .07  # Percentage (well.. fraction) of the data set for the test set
 
 ## Functions
 def exit(ec):
@@ -44,14 +46,17 @@ def vprint(verbosity, *args, **kwargs):
 def load_imgnames():
 	vprint(2, "Opening " + bent_dir + "\n")
 	i = 0
-	for d in listdir(bent_dir):
+	for name in listdir(bent_dir):
 		i = i+1
-		ifile=join(bent_dir, d)
+		ifile=join(bent_dir, name)
 		if isdir(ifile):        # Valid bent_images dir
 			                    # ...corresponding to valid ideal_image dir
 			if not isdir(join(ideal_dir, name)):
 				eprint("Dir " + name + " not in ideal folder: " + ideal_dir)
-			img_ids.append(name)
+			if random.random() > test_fraction:
+				img_ids_train.append(name)
+			else:
+				img_ids_test.append(name)
 		if max_imagesets > 0 and i > max_imagesets:
 			break
 def init():
@@ -87,13 +92,31 @@ def imgset_ideal(id):
 	return imgset_from_dir(ideal_dir, id)
 def imgset_bent(id):
 	return imgset_from_dir(bent_dir, id)
+def show_shape(inputs, x):
+	# we can predict with the model and print the shape of the array.
+	dummy_input = np.ones((10, 1, 67, 67))
+
+	model = Model(input=inputs, output=x)
+	preds = model.predict(dummy_input)
+	print(preds.shape)
 def create_nn():
-	inputs = Input(shape = (3, 67, 67))
-	x = Flatten()(inputs)
-	x = Dense(100)(x)
-	x = Dense(100)(x)
-	x = Dense(3*67*67)(x)
-	x = Reshape((3, 67, 67))(x)
+	inputs = Input(shape = (1, 67, 67))
+
+	x = Convolution2D(16, 2, 2, activation='relu', border_mode='same')(inputs)
+
+	x = MaxPooling2D((2,2), border_mode='same')(x)
+	x = Convolution2D(16, 3, 3, activation='relu', border_mode='same', subsample=(2,2))(x)
+	x = MaxPooling2D((3,3), border_mode='same')(x)
+	x = Flatten()(x)
+	x = Dense(16)(x)
+	x = Dense(256)(x)
+	x = Reshape((16,4,4))(x)              # -> (10, 16, 4, 4)
+	print("reshape:"); show_shape(inputs, x)
+	x = UpSampling2D(size = (4,4))(x)     # -> (10, 16, 16, 16)
+	print("upsample2d:"); show_shape(inputs, x)
+	x = Deconvolution2D(16,67,67, border_mode='valid', subsample=(2,2), output_shape=(None,16,67,67))(x)
+	print("deconv:"); show_shape(inputs, x);
+	exit(0)
 	#x = Convolution2D(16, 3, 3, activation='relu', border_mode='same')(inputs)
 	#x = MaxPooling2D((2,2), border_mode='same')(x)
 
@@ -103,6 +126,8 @@ def create_nn():
 	#x = Convolution2D(3, 3, 3, border_mode='same')(x)
 
 	model = Model(input=inputs, output=x)
+	print(model.summary())
+	#exit(0)
 	model.compile(loss='mean_absolute_error', optimizer='adam', metrics=['accuracy'])
 	if load_weights and isfile(weight_store):
 		model.load_weights(weight_store)
@@ -125,17 +150,19 @@ def view_img(img):
 	plt.imshow(img)
 	plt.draw()
 	#exit(0)
+	
 def train_nn(model):
 	x = None
 	y = None
 	total_train = 0
-	for our_epochs in range(max_main_imgloops):
-	for imgid in img_ids:
+	#for our_epochs in range(max_main_imgloops):
+		#train_id = get_rand_img_train_id()
+	for imgid in img_ids_train:
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
 		for ideal in ideal_imgs:
 			print("Training " + ideal)
-			img = load_img(ideal)  # PIL image
+			img = load_img(ideal, grayscale='True')  # PIL image
 			y = img_to_array(img)  # Numpy array with shape (1, 150, 150)
 			print(y)
 			#view_img(img)
