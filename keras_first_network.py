@@ -13,7 +13,9 @@ from random import randint
 import random
 import re
 import os
+import time
 from PIL import Image
+import matplotlib.image as mpimg
 
 def get_linux_terminal():
 	import os
@@ -178,11 +180,11 @@ def create_nn():
 	pf("maxpool((2,2)): ", sep='', end=''); show_shape(inputs, x)
 
 
-	x = Convolution2D(filters, 2, 2, activation=convact, border_mode='same', subsample=(1,1))(x)
-	pf("conv2d(", filters, ",2,2): ", sep='', end=''); show_shape(inputs, x)
-
-	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
-	pf("maxpool((2,2)): ", sep='', end=''); show_shape(inputs, x)
+#	x = Convolution2D(filters, 2, 2, activation=convact, border_mode='same', subsample=(1,1))(x)
+#	pf("conv2d(", filters, ",2,2): ", sep='', end=''); show_shape(inputs, x)
+#
+#	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
+#	pf("maxpool((2,2)): ", sep='', end=''); show_shape(inputs, x)
 
 
 	x = Flatten()(x) # -> 1296
@@ -195,18 +197,23 @@ def create_nn():
 	x = Dense(96)(x)
 	pf("dense(96): ", sep='', end=''); show_shape(inputs, x)
 
-	x = Dense(filters*16)(x)
-	pf("dense(9*filters): ", sep='', end=''); show_shape(inputs, x)
+#	x = Dense(filters*16)(x)
+#	pf("dense(9*filters): ", sep='', end=''); show_shape(inputs, x)
+#
+#	x = Reshape((filters,4,4))(x)
+#	pf("reshape((", 1, ",4,4): ", sep='', end=''); show_shape(inputs, x)
 
-	x = Reshape((filters,4,4))(x)
-	pf("reshape((", 1, ",4,4): ", sep='', end=''); show_shape(inputs, x)
+	x = Dense(filters*64)(x)
+	pf("dense(filters*64): ", sep='', end=''); show_shape(inputs, x)
+	x = Reshape((filters,8,8))(x)
+	pf("reshape((", 1, ",8,8): ", sep='', end=''); show_shape(inputs, x)
 
-	x = UpSampling2D(size = (2,2), dim_ordering='th')(x)
-	pf("upsamp2d((2,2): ", sep='', end=''); show_shape(inputs, x)
-	x = Deconvolution2D(filters,2,2, border_mode='same', subsample=(1,1), output_shape=(None,filters,7,7))(x)
-	pf("deconv2d(", filters, ",2,2): ", sep='', end=''); show_shape(inputs, x)
-	x = ZeroPadding2D(padding=(0, 1, 0, 1), dim_ordering='default')(x)
-	pf("ZeroPadding2D(0,1,0,1): ", sep='', end=''); show_shape(inputs, x)
+#	x = UpSampling2D(size = (2,2), dim_ordering='th')(x)
+#	pf("upsamp2d((2,2): ", sep='', end=''); show_shape(inputs, x)
+#	x = Deconvolution2D(filters,2,2, border_mode='same', subsample=(1,1), output_shape=(None,filters,7,7))(x)
+#	pf("deconv2d(", filters, ",2,2): ", sep='', end=''); show_shape(inputs, x)
+#	x = ZeroPadding2D(padding=(0, 1, 0, 1), dim_ordering='default')(x)
+#	pf("ZeroPadding2D(0,1,0,1): ", sep='', end=''); show_shape(inputs, x)
 
 	x = UpSampling2D(size = (2,2), dim_ordering='th')(x)
 	pf("upsamp2d((2,2): ", sep='', end=''); show_shape(inputs, x)
@@ -285,45 +292,105 @@ def get_rand_sampling(array, count):
 	ret = []
 	for i in range(0, count):
 		ret.append(array[randint(0,alen-1)])
-	pf("Rand subset:", ret)
+	#pf("Rand subset:", ret)
 	return ret
 	
-def get_random_imgid_bundles(bundle_size):
+def get_random_imgid_bundles(imagecount, idealcount, bentcount):
 	inps=[]
 	outs=[]
-	for imgid in get_rand_sampling(img_ids_train, bundle_size):
+	if idealcount > 1:
+		pf("get_random_imgid_bundles(): Error: idealcount can only be 1 for now")
+		exit(0)
+	pf("Loading image bundles (", imagecount*bentcount, ")", sep="");
+	id_set = get_rand_sampling(img_ids_train, imagecount)
+	#pf("Loading img ids (count:", len(id_set))
+	#exit(0)
+	for imgid in id_set:
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
 
-		bent_subset = get_rand_sampling(bent_imgs, bundle_size)
+		bent_subset = get_rand_sampling(bent_imgs, bentcount)
 
 		# We only have one ideal image per imgid right now, so we repeat it 10 times
-		ideal_subset = [ideal_imgs[0]] * bundle_size
+		ideal_subset = [ideal_imgs[0]] * bentcount
 
 		outs.extend(ideal_subset)
 		inps.extend(bent_subset)
-	for i in range(0, len(inps)):
-		pf("[",i,"] ", inps[i], " -> ", outs[i], sep='')
+	#for i in range(0, len(inps)):
+		#pf("[",i,"] ", inps[i], " -> ", outs[i], sep='')
+	pf("/Loading image bundles")
 	return inps, outs
 
+def randdeform(img, xoffset=0, yoffset=0):  # img:numpy array (1, w, h)
+	#img=mpimg.imread('stinkbug.png')
+	#img = np.array(list(itertools.chain(*[range(8)]*8))).reshape((1,8,8))
+	#pf("stinkbug shape:", img.shape)
+	#exit(0)
+	if xoffset >= 1 or yoffset >= 1 or xoffset < 0 or yoffset < 0:
+		pf("Please don't call randdeform() with offsets outside of [0,1)")
+		exit(0)
+	w = img.shape[1]
+	h = img.shape[2]
+	xoff = int(w * xoffset)
+	xoff = randint(-xoff, xoff)
+	yoff = int(w * yoffset)
+	yoff = randint(-yoff, yoff)
+	view_img("Orig", img[0], show=True)
+	#np.set_printoptions(threshold=64, linewidth=termwidth-1, edgeitems=10)
+	#pf("IMG-roll:"); pf(img)
+	#img = np.array([[1,2,3,4,5],[6,7,8,9,0]])
+	#img = img.reshape((1,) + img.shape)
+	#img.transpose(1,2,0)
+	#pf("Image shape:", img.shape)
+	#time.sleep(3)
+	#view_img("No roll", img, show=True)
+	if xoff:
+		img = np.roll(img, xoff, axis=2);
+		if xoff > 0:
+			img[:,:,:xoff].fill(1)
+		else:
+			img[:,:,xoff:].fill(1)
+	if yoff:
+		img = np.roll(img, yoff, axis=1);
+		if yoff > 0:
+			img[:,:yoff,:].fill(1)
+		else:
+			img[:,yoff:,:].fill(1)
+	#pf("Rolling x:", xoff, " y:", yoff, sep='')
+	#view_img("Roll", img[0], show=True)
+	#time.sleep(10);
+	#exit(0)
+	#time.sleep(15)
+	#, axis=1) # axis=1 = xaxis
+	
 def imgids_to_imgs(imgids):
 	iset=[]
 	for imgid in imgids:
 		img = load_img(imgid, grayscale='True')
 		img = img_to_array(img)  # Numpy array with shape (1, width, height)
 		img = (img/255.0) - .5   # I guess we want -1 .. 1
+		randdeform(img, xoffset=.10, yoffset=.10)
 		#img = img.reshape((1,) + img.shape)  # Numpy array with shape (1, 1, w, h)
 		#pf("Image", imgid, "Shape:", img.shape)
 		iset.append(img)
 	iset = np.array(iset)
-	#pf("iset shape:", iset.shape)
+	pf("iset shape:", iset.shape)
 	return iset
 
 def train_bundles(model):
 	total_train = 0
-	bsize=20
+	bsize=16
+	src_img_bundle=6     # Img IDs correspond to sets of words on pages, each with
+	                     #  some number of ideal flat images (only 1 right now), and
+						 #  some number of bent images
+	ideal_img_bundle=1   # We only have 1 flat page right now
+	bent_img_bundle=2    # Bunch of these
+	train_epochs=1
 	while True:
-		ximgids,yimgids = get_random_imgid_bundles(bsize)
+		ximgids,yimgids = get_random_imgid_bundles(src_img_bundle, ideal_img_bundle, bent_img_bundle)
+		bsize=len(ximgids)
+		pf("Bundle size:", bsize)
+		#exit(0)
 		x=imgids_to_imgs(ximgids)
 		y=imgids_to_imgs(yimgids)
 		pf("model.fit()")
@@ -336,6 +403,8 @@ def train_bundles(model):
 			prediction = model.predict(x)
 			pf("/Predicting:")
 			pf("Displaying input image [0]")
+			pf("Shape of image we're about to display", y[0][0].shape)
+			time.sleep(5)
 			view_img("Ideal (Output)", y[0][0])
 			view_img("Bent (Input)", x[0][0])
 			pf("Displaying prediction image [0][0]")
@@ -381,7 +450,7 @@ def train_nn(model):
 				#pf(y.shape)
 				#view_img(img)
 				#pf("Output Image")
-				y = y.reshape((1,) + y.shape)  # Numpy array with shape (1, 1, 150, 150)
+				y = y.reshape((1,) + y.shape)  # Numpy array with shape (1, 1, 150, 150), I think so it's a batch of count(1 right now),channels,rows,cols
 				#pf("Output Image")
 				#pf(y)
 				j = 0
