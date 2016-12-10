@@ -4,6 +4,7 @@ from keras.models import Sequential, Model # , load_weights, save_weights
 from keras.layers import Dense, Reshape, UpSampling2D, Flatten, Convolution2D, Deconvolution2D, MaxPooling2D, Input, ZeroPadding2D
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 from keras.utils.layer_utils import print_summary
+from keras.optimizers import Adam, SGD
 import numpy as np
 import sys
 from os import listdir
@@ -14,8 +15,11 @@ import random
 import re
 import os
 import time
+from time import sleep
 from PIL import Image
 import matplotlib.image as mpimg
+
+convact='tanh'
 
 def get_linux_terminal():
 	import os
@@ -71,10 +75,10 @@ out_batch_versions=3 # number of distorted images to feed in
 in_batch_versions=3 # number of distorted images to feed in
 load_weights=0      # load prior run stored weights
 test_fraction = .07  # Percentage (well.. fraction) of the data set for the test set
-plot = None         # matplotlib image
-whichsubplot = 0
-plotrows = 6
-plotcols = 4
+whichsubplot = -1
+axs = None
+fig = None
+normalize = True
 
 ## Functions
 def exit(ec):
@@ -156,10 +160,48 @@ def show_shape(inputs, x):
 	preds = model.predict(dummy_input)
 	pf(preds.shape)
 	#pf(" /MODEL PREDICT:")
-convact='tanh'
+def create_nn2():
+	act='tanh'
+	filters = 36
+
+	inputs = Input(shape = (1, img_width, img_height))
+	pf("input(): ", sep='', end=''); show_shape(inputs, inputs)
+
+	x = Flatten()(inputs)
+	pf("flatten(): ", sep='', end=''); show_shape(inputs, x)
+
+	x = Dense(128, activation=act)(x)
+	pf("dense(128): ", sep='', end=''); show_shape(inputs, x)
+
+	x = Dense(16, activation=act)(x)
+	pf("dense(128): ", sep='', end=''); show_shape(inputs, x)
+
+	x = Dense(128, activation=act)(x)
+	pf("dense(128): ", sep='', end=''); show_shape(inputs, x)
+
+	x = Dense(1024, activation=act)(x)
+	pf("dense(1024): ", sep='', end=''); show_shape(inputs, x)
+
+	x = Reshape((1,32,32))(x)
+	pf("reshape((", 1, ",32,32): ", sep='', end=''); show_shape(inputs, x)
+
+	model = Model(input=inputs, output=x)
+	pf(model.summary())
+	pf("final prediction: ", sep='', end=''); show_shape(inputs, x)
+	pf("Compiling model")
+	#sgd=SGD(lr=0.1, momentum=0.000, decay=0.0, nesterov=False)
+	opt=Adam(lr=0.00001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+	model.compile(loss='mean_absolute_error', optimizer=opt, metrics=['accuracy'])
+	#model.compile(loss='mean_absolute_error', optimizer='adam', metrics=['accuracy'])
+	pf("Loading weights")
+	if load_weights and isfile(weight_store):
+		model.load_weights(weight_store)
+	pf("Returning model")
+	return model
+
 def create_nn():
 	global activation
-	filters = 16
+	filters = 36
 
 	inputs = Input(shape = (1, img_width, img_height))
 	pf("input(): ", sep='', end=''); show_shape(inputs, inputs)
@@ -170,7 +212,7 @@ def create_nn():
 	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
 	pf("maxpool((2,2)): ", sep='', end=''); show_shape(inputs, x)
 
-	filters = 8
+	filters = 16
 
 
 	x = Convolution2D(filters, 2, 2, activation=convact, border_mode='same', subsample=(1,1))(x)
@@ -221,6 +263,8 @@ def create_nn():
 	pf("deconv2d(", filters, ",2,2): ", sep='', end=''); show_shape(inputs, x)
 	x = ZeroPadding2D(padding=(1, 0, 1, 0), dim_ordering='default')(x)
 	
+	filters = 16
+
 	x = UpSampling2D(size = (2,2), dim_ordering='th')(x)
 	pf("upsamp2d((2,2): ", sep='', end=''); show_shape(inputs, x)
 	x = Deconvolution2D(filters,2,2, border_mode='same', subsample=(1,1), output_shape=(None,filters,31,31))(x)
@@ -258,34 +302,45 @@ def create_nn():
 	return model
 
 def view_img(label, img, show=False):
-	global plot
+	global axs
+	global fig
 	global whichsubplot
-	global plotrows
-	global plotcols
 	global show_images
+	#img = mpimg.imread('stinkbug.png')
+	plotrows = 4
+	plotcols = 4
 	#show_images=0
 	if not show_images: return
-	pf(img)
+	#pf(img)
 	whichsubplot += 1
-	if (whichsubplot > plotrows*plotcols):
-		whichsubplot = 1
-	if plot is None:
-		plot = plt.figure(figsize=(8,11))
+	if (whichsubplot >= plotrows*plotcols):
+		whichsubplot = 0
+	pf(fig)
+	if fig is None:
+		fig,axs = plt.subplots(plotrows,plotcols,figsize=(4,4))
 		plt.ion()
-		plot.subplots_adjust(hspace=.5)
-		plot.subplots_adjust(wspace=.4)
-	plt.subplot(plotrows, plotcols, whichsubplot)
+		plt.pause(0.05)
+		fig.subplots_adjust(hspace=.2)
+		fig.subplots_adjust(wspace=.2)
+	pf(fig)
+	yax = int(whichsubplot/plotrows)
+	xax = int(whichsubplot % plotrows)
+	pf("Current axes (y,x):", yax, xax)
+	pf("Deleting...")
+	fig.delaxes(axs[yax][xax]) 
+	pf("Making new subplot...")
+	newaxs = plt.subplot(plotrows, plotcols, whichsubplot+1)
+	axs[yax][xax] = newaxs
 	plt.title(label, fontsize=10)
 	plt.axis('off')
-	fig = plt.imshow(img, cmap="gray")
+	axs[yax][xax].imshow(img, cmap="gray")
+	plt.pause(0.05)
 	#plt.colorbar()
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
+	#plt.axes.get_xaxis().set_visible(False)
+	#plt.axes.get_yaxis().set_visible(False)
 	if show:
 		plt.show()
-	plot.canvas.draw()
-	#plt.draw()
-	#exit(0)
+		plt.pause(0.05)
 
 def get_rand_sampling(array, count):
 	alen = len(array)
@@ -321,7 +376,7 @@ def get_random_imgid_bundles(imagecount, idealcount, bentcount):
 	pf("/Loading image bundles")
 	return inps, outs
 
-def randdeform(img, xoffset=0, yoffset=0):  # img:numpy array (1, w, h)
+def randdeform(img, xoffset=0, yoffset=0, fill=0):  # img:numpy array (1, w, h)
 	#img=mpimg.imread('stinkbug.png')
 	#img = np.array(list(itertools.chain(*[range(8)]*8))).reshape((1,8,8))
 	#pf("stinkbug shape:", img.shape)
@@ -335,7 +390,7 @@ def randdeform(img, xoffset=0, yoffset=0):  # img:numpy array (1, w, h)
 	xoff = randint(-xoff, xoff)
 	yoff = int(w * yoffset)
 	yoff = randint(-yoff, yoff)
-	view_img("Orig", img[0], show=True)
+	#view_img("Orig", img[0], show=True)
 	#np.set_printoptions(threshold=64, linewidth=termwidth-1, edgeitems=10)
 	#pf("IMG-roll:"); pf(img)
 	#img = np.array([[1,2,3,4,5],[6,7,8,9,0]])
@@ -347,29 +402,35 @@ def randdeform(img, xoffset=0, yoffset=0):  # img:numpy array (1, w, h)
 	if xoff:
 		img = np.roll(img, xoff, axis=2);
 		if xoff > 0:
-			img[:,:,:xoff].fill(1)
+			img[:,:,:xoff].fill(fill)
 		else:
-			img[:,:,xoff:].fill(1)
+			img[:,:,xoff:].fill(fill)
 	if yoff:
 		img = np.roll(img, yoff, axis=1);
 		if yoff > 0:
-			img[:,:yoff,:].fill(1)
+			img[:,:yoff,:].fill(fill)
 		else:
-			img[:,yoff:,:].fill(1)
+			img[:,yoff:,:].fill(fill)
 	#pf("Rolling x:", xoff, " y:", yoff, sep='')
 	#view_img("Roll", img[0], show=True)
 	#time.sleep(10);
 	#exit(0)
 	#time.sleep(15)
 	#, axis=1) # axis=1 = xaxis
+	return img
 	
-def imgids_to_imgs(imgids):
+def imgids_to_imgs(imgids, deform='small'):
+	if deform == 'small':
+		offset = .06  # 2/32 pixels right now
+	else:
+		offset = .12
 	iset=[]
 	for imgid in imgids:
 		img = load_img(imgid, grayscale='True')
 		img = img_to_array(img)  # Numpy array with shape (1, width, height)
-		img = (img/255.0) - .5   # I guess we want -1 .. 1
-		randdeform(img, xoffset=.10, yoffset=.10)
+		if normalize:
+			img = (img/255.0) - .5   # I guess we want -1 .. 1
+		img = randdeform(img, xoffset=offset, yoffset=offset, fill=0)
 		#img = img.reshape((1,) + img.shape)  # Numpy array with shape (1, 1, w, h)
 		#pf("Image", imgid, "Shape:", img.shape)
 		iset.append(img)
@@ -379,21 +440,20 @@ def imgids_to_imgs(imgids):
 
 def train_bundles(model):
 	total_train = 0
-	bsize=16
-	src_img_bundle=6     # Img IDs correspond to sets of words on pages, each with
+	src_img_bundle=20    # Img IDs correspond to sets of words on pages, each with
 	                     #  some number of ideal flat images (only 1 right now), and
 						 #  some number of bent images
 	ideal_img_bundle=1   # We only have 1 flat page right now
-	bent_img_bundle=2    # Bunch of these
-	train_epochs=1
+	bent_img_bundle=25   # Bunch of these
+	train_epochs=20
 	while True:
 		ximgids,yimgids = get_random_imgid_bundles(src_img_bundle, ideal_img_bundle, bent_img_bundle)
 		bsize=len(ximgids)
 		pf("Bundle size:", bsize)
 		#exit(0)
-		x=imgids_to_imgs(ximgids)
-		y=imgids_to_imgs(yimgids)
-		pf("model.fit()")
+		x=imgids_to_imgs(ximgids, deform='large')
+		y=imgids_to_imgs(yimgids, deform='small')
+		pf("model.fit() batchsize(", bsize, ")*epochs(", train_epochs, ") = ", bsize*train_epochs, sep='')
 		history = model.fit(x, y, batch_size=bsize, nb_epoch=train_epochs, verbose=0)
 		pf("/model.fit()")
 		total_train += bsize*train_epochs
@@ -404,15 +464,15 @@ def train_bundles(model):
 			pf("/Predicting:")
 			pf("Displaying input image [0]")
 			pf("Shape of image we're about to display", y[0][0].shape)
-			time.sleep(5)
-			view_img("Ideal (Output)", y[0][0])
-			view_img("Bent (Input)", x[0][0])
+			#time.sleep(5)
+			view_img("(Output)", y[0][0], show=True)
+			#view_img("Bent (Input)", x[0][0], show=True)
 			pf("Displaying prediction image [0][0]")
 			pf(prediction[0][0])
 			pf("Pred min: ", prediction[0][0].min())
 			pf("Pred max: ", prediction[0][0].max())
 			#plt.hist(prediction[0][0], bins=256, range=(0.0, 1.0))
-			view_img("Train pred ("+str(total_train)+")", prediction[0][0])
+			view_img("pred #"+str(total_train), prediction[0][0])
 			plt.show()
 			#exit(0)
 			pf("/Displaying prediction image")
@@ -443,7 +503,8 @@ def train_nn(model):
 				#pf("Ideal image:")
 				#pf(y)
 				#view_img("Orig Input", y[0])
-				y = (y/255.0) - .5
+				if normalize:
+					y = (y/255.0) - .5
 				#pf("Ideal image regularized:")
 				#pf(y)
 				#exit(0)
@@ -466,7 +527,8 @@ def train_nn(model):
 						pf("Trained:", total_train, "Loading bent image:", bent)
 						img = load_img(bent, grayscale='True')  # PIL image
 						x = img_to_array(img)  # Numpy array with shape (1, 150, 150)
-						x = (x/255.0) - .5
+						if normalize:
+							x = (x/255.0) - .5
 						#pf("     Bent image:")
 						#pf(x)
 						x = x.reshape((1,) + x.shape)  # Numpy array with shape (1, 3, 150, 150)
@@ -530,7 +592,7 @@ def train_nn(model):
 
 datagen_input, datagen_output = init()
 load_imgnames()
-model = create_nn()
+model = create_nn2()
 train_bundles(model)
 model.save_weights(weight_store)
 sys.exit(0)
