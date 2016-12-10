@@ -190,8 +190,8 @@ def create_nn2():
 	pf("final prediction: ", sep='', end=''); show_shape(inputs, x)
 	pf("Compiling model")
 	#sgd=SGD(lr=0.1, momentum=0.000, decay=0.0, nesterov=False)
-	opt=Adam(lr=0.00001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-	model.compile(loss='mean_absolute_error', optimizer=opt, metrics=['accuracy'])
+	opt=Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+	model.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
 	#model.compile(loss='mean_absolute_error', optimizer='adam', metrics=['accuracy'])
 	pf("Loading weights")
 	if load_weights and isfile(weight_store):
@@ -307,8 +307,8 @@ def view_img(label, img, show=False):
 	global whichsubplot
 	global show_images
 	#img = mpimg.imread('stinkbug.png')
-	plotrows = 4
-	plotcols = 4
+	plotrows = 6
+	plotcols = 3
 	#show_images=0
 	if not show_images: return
 	#pf(img)
@@ -320,11 +320,12 @@ def view_img(label, img, show=False):
 		fig,axs = plt.subplots(plotrows,plotcols,figsize=(4,4))
 		plt.ion()
 		plt.pause(0.05)
-		fig.subplots_adjust(hspace=.2)
-		fig.subplots_adjust(wspace=.2)
+		fig.subplots_adjust(hspace=0)
+		fig.subplots_adjust(wspace=.1)
 	pf(fig)
-	yax = int(whichsubplot/plotrows)
-	xax = int(whichsubplot % plotrows)
+	pf("Plotting whichsubplot:", whichsubplot)
+	yax = int(whichsubplot/plotcols)
+	xax = int(whichsubplot % plotcols)
 	pf("Current axes (y,x):", yax, xax)
 	pf("Deleting...")
 	fig.delaxes(axs[yax][xax]) 
@@ -338,9 +339,9 @@ def view_img(label, img, show=False):
 	#plt.colorbar()
 	#plt.axes.get_xaxis().set_visible(False)
 	#plt.axes.get_yaxis().set_visible(False)
-	if show:
-		plt.show()
-		plt.pause(0.05)
+	#if show:
+		#plt.show()
+		#plt.pause(0.05)
 
 def get_rand_sampling(array, count):
 	alen = len(array)
@@ -439,14 +440,16 @@ def imgids_to_imgs(imgids, deform='small'):
 	return iset
 
 def train_bundles(model):
+	iterations = 0
 	total_train = 0
-	src_img_bundle=20    # Img IDs correspond to sets of words on pages, each with
+	src_img_bundle=80    # Img IDs correspond to sets of words on pages, each with
 	                     #  some number of ideal flat images (only 1 right now), and
 						 #  some number of bent images
 	ideal_img_bundle=1   # We only have 1 flat page right now
-	bent_img_bundle=25   # Bunch of these
+	bent_img_bundle=45   # Bunch of these
 	train_epochs=20
 	while True:
+		iterations += 1
 		ximgids,yimgids = get_random_imgid_bundles(src_img_bundle, ideal_img_bundle, bent_img_bundle)
 		bsize=len(ximgids)
 		pf("Bundle size:", bsize)
@@ -454,17 +457,19 @@ def train_bundles(model):
 		x=imgids_to_imgs(ximgids, deform='large')
 		y=imgids_to_imgs(yimgids, deform='small')
 		pf("model.fit() batchsize(", bsize, ")*epochs(", train_epochs, ") = ", bsize*train_epochs, sep='')
-		history = model.fit(x, y, batch_size=bsize, nb_epoch=train_epochs, verbose=0)
+		history = model.fit(x, y, validation_split=.1, batch_size=bsize, nb_epoch=train_epochs, verbose=1)
 		pf("/model.fit()")
 		total_train += bsize*train_epochs
-		if not (total_train % 1):
+		#if not (total_train % (bsize*10)):
+		if not iterations % 10:
 			pf("Total trainings:", total_train)
 			pf("Predicting:")
-			prediction = model.predict(x)
+			prediction = model.predict(x, batch_size=bsize, verbose=1)
 			pf("/Predicting:")
 			pf("Displaying input image [0]")
 			pf("Shape of image we're about to display", y[0][0].shape)
 			#time.sleep(5)
+			view_img("(Input)", x[0][0], show=True)
 			view_img("(Output)", y[0][0], show=True)
 			#view_img("Bent (Input)", x[0][0], show=True)
 			pf("Displaying prediction image [0][0]")
