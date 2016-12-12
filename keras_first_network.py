@@ -19,6 +19,7 @@ from time import sleep
 from PIL import Image
 import matplotlib.image as mpimg
 from math import ceil
+import math
 
 convact='tanh'
 
@@ -60,27 +61,30 @@ def get_linux_terminal():
 
 weight_store_imgdata = "weights-imgdata.h5"
 weight_store_angles = "weights-angles.h5"
-bent_dir = "blend/pages1-32"
-ideal_dir = "blend/ideal1-32"
+bent_dir = "blend/pages"
+ideal_dir = "blend/ideal"
 img_ids_train=[]
 img_ids_test=[]
 verbose=0
 show_images=1
 datagen_input=None
 datagen_output=None
-img_width=32
-img_height=32
-max_imagesets=100 # imageset = Each unique page of words (bent or flat)
+img_width=67
+img_height=67
+max_imagesets=1000 # imageset = Each unique page of words (bent or flat) (-1 is unlimited)
 #max_main_imgloops = 100 # Number of times to loop through entire set of images
 train_epochs=1
 out_batch_versions=3 # number of distorted images to feed in
 in_batch_versions=3 # number of distorted images to feed in
-load_weights=0      # load prior run stored weights
+load_weights=1      # load prior run stored weights
+save_weights=1      # load prior run stored weights
 test_fraction = .07  # Percentage (well.. fraction) of the data set for the test set
 whichsubplot = -1
 axs = None
 fig = None
 normalize = True
+#opt_run_test = True
+opt_run_test = False
 
 ## Functions
 def exit(ec):
@@ -113,10 +117,10 @@ def init():
 	# fix random seed for reproducibility
 	global termwidth, termheight
 	termwidth, termheight = get_linux_terminal()
-	seed = 8
+	seed = 9
 	random.seed(seed)
 	np.random.seed(seed)
-	np.set_printoptions(threshold=64, linewidth=termwidth-1, edgeitems=1)
+	np.set_printoptions(threshold=64, linewidth=termwidth-1, edgeitems=3)
 	datagen_input = ImageDataGenerator(
 		rotation_range=0,
 		width_shift_range=0.09,
@@ -169,7 +173,7 @@ def create_nn_test():
 	x = Flatten()(inputs); pf("flatten(): "); show_shape(inputs, x)
 	dense = Dense(imgwh, activation=act)
 	x = dense(x); pf("Dense(256): "); show_shape(inputs, x)
-	x = Reshape((1,32,32))(x); pf("reshape((", 1, ",32,32): ", sep='', end=''); show_shape(inputs, x)
+	x = Reshape((1,img_width,img_height))(x); pf("reshape(", (1, img_width, img_height), ") ", sep='', end=''); show_shape(inputs, x)
 	outputs = x
 	model = Model(input=inputs, output=outputs)
 	pf(model.summary())
@@ -191,26 +195,30 @@ def create_nn2():
 	x = Flatten()(inputs)
 	pf("flatten(): ", sep='', end=''); show_shape(inputs, x)
 
-	transform = Dense(16, activation=act)
+	angles = Dense(16, activation=act, name="angles")
 	pf("dense(16)::: ", sep='', end='');
-	imgdata = Dense(1024, activation=act)
+	imgdata = Dense(1024, activation=act, name="imgdata")
 	pf("dense(1024)::: ", sep='', end='');
 
-	transform_called = transform(x)
+	angles_called = angles(x)
 	imgdata_called = imgdata(x)
 
-	#joined = merge([transform, imgdata], mode='concat', concat_axis=1)
-	joined = merge([transform_called, imgdata_called], mode='concat', concat_axis=1)
+	viewer_angles_layer = Reshape((1, 4, 4))(angles_called) # Output for viewing
+	viewer_img_layer = Reshape((1, 32, 32))(imgdata_called)    # Output for viewing
 
-	x = Dense(1024, activation=act)(joined)
-	pf("dense(1024): ", sep='', end=''); show_shape(inputs, x)
+	joined = merge([angles_called, imgdata_called], mode='concat', concat_axis=1)
 
-	x = Reshape((1,32,32))(x)
-	pf("reshape((", 1, ",32,32): ", sep='', end=''); show_shape(inputs, x)
+	x = Dense(4489, activation=act)(joined)
+	pf("dense(4489): ", sep='', end=''); show_shape(inputs, x)
+
+	x = Reshape((1,img_height,img_width))(x)
+	pf("reshape(", (1, img_width, img_height), "): ", sep='', end=''); show_shape(inputs, x)
 
 	outputs=x
 	model_train_angles = Model(input=inputs, output=outputs)
 	model = Model(input=inputs, output=outputs)
+	model_view_angles = Model(input=inputs, output=viewer_angles_layer)
+	model_view_imgdata = Model(input=inputs, output=viewer_img_layer)
 	pf(model.summary())
 	pf("final prediction: ", sep='', end=''); show_shape(inputs, x)
 
@@ -219,18 +227,20 @@ def create_nn2():
 
 	opt=Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
 
-	transform.trainable = False
+	angles.trainable = False
 	imgdata.trainable = True
 	model.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
-	transform.trainable = True
+	angles.trainable = True
 	imgdata.trainable = False
 	model_train_angles.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
+	model_view_angles.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
+	model_view_imgdata.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
 	pf("Loading weights")
 	if load_weights and isfile(weight_store_imgdata):
 		model.load_weights(weight_store_imgdata)
 	if load_weights and isfile(weight_store_angles):
 		model_train_angles.load_weights(weight_store_angles)
-	return model, model_train_angles
+	return model, model_train_angles, model_view_angles, model_view_imgdata
 
 def create_nn():
 	global activation
@@ -341,44 +351,47 @@ def view_img(label, img, show=False):
 	global fig
 	global whichsubplot
 	global show_images
+	pf("View img")
 	#img = mpimg.imread('stinkbug.png')
-	plotrows = 4
-	plotcols = 3
+	plotrows = 5
+	plotcols = 4
 	#show_images=0
 	if not show_images: return
 	#pf(img)
 	whichsubplot += 1
 	if (whichsubplot >= plotrows*plotcols):
 		whichsubplot = 0
-	pf(fig)
+	#pf(fig)
 	if fig is None:
-		fig,axs = plt.subplots(plotrows,plotcols,figsize=(4,5))
+		fig,axs = plt.subplots(plotrows,plotcols,figsize=(5,6))
 		plt.ion()
-		plt.pause(0.05)
+		plt.pause(0.05) # Calls matplotlib's event loop
 		fig.subplots_adjust(hspace=0)
 		fig.subplots_adjust(wspace=.3)
-	pf(fig)
-	pf("Plotting whichsubplot:", whichsubplot)
+	#pf(fig)
+	#pf("  Plotting whichsubplot:", whichsubplot)
 	yax = int(whichsubplot/plotcols)
 	xax = int(whichsubplot % plotcols)
-	pf("Current axes (y,x):", yax, xax)
-	pf("Deleting...")
+	#pf("  Current axes (y,x):", yax, xax)
+	#pf("  Deleting...")
 	fig.delaxes(axs[yax][xax]) 
-	pf("Making new subplot...")
+	#pf("  Making new subplot...")
 	newaxs = plt.subplot(plotrows, plotcols, whichsubplot+1)
 	axs[yax][xax] = newaxs
 	plt.title(label, fontsize=10)
 	plt.axis('off')
-	axs[yax][xax].imshow(img, cmap="gray")
-	plt.pause(0.05)
+	axs[yax][xax].imshow(img, cmap="gray", interpolation='nearest') # interpolation='None'
+	plt.pause(0.05) # Calls matplotlib's event loop
 	#plt.colorbar()
 	#plt.axes.get_xaxis().set_visible(False)
 	#plt.axes.get_yaxis().set_visible(False)
 	#if show:
 		#plt.show()
-		#plt.pause(0.05)
+		#plt.pause(0.05) # Calls matplotlib's event loop
+	pf("/view img")
 
 def get_rand_sampling(array, count):
+	#pf("rand array:", array)
 	alen = len(array)
 	ret = []
 	for i in range(0, count):
@@ -386,24 +399,25 @@ def get_rand_sampling(array, count):
 	#pf("Rand subset:", ret)
 	return ret
 	
-def get_random_imgid_bundles(imgs, imagecount, idealcount, bentcount):
+def get_random_imgid_bundles(imgs, unique=1, ideal=1, bent=1):
 	inps=[]
 	outs=[]
-	if idealcount > 1:
-		pf("get_random_imgid_bundles(): Error: idealcount can only be 1 for now")
+	if ideal > 1:
+		pf("get_random_imgid_bundles(): Error: ideal count can only be 1 for now")
 		exit(0)
-	pf("Loading image bundles (", imagecount*bentcount, ")", sep="");
-	id_set = get_rand_sampling(imgs, imagecount)
-	#pf("Loading img ids (count:", len(id_set))
+	pf("Loading image bundles (", unique*bent, ")", sep="");
+	id_set = get_rand_sampling(imgs, unique)
+	pf("Loading img ids (count:", len(id_set))
 	#exit(0)
 	for imgid in id_set:
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
 
-		bent_subset = get_rand_sampling(bent_imgs, bentcount)
+		bent_subset = get_rand_sampling(bent_imgs, bent)
+		#pf("Bent:", bent_subset)
 
 		# We only have one ideal image per imgid right now, so we repeat it 10 times
-		ideal_subset = [ideal_imgs[0]] * bentcount
+		ideal_subset = [ideal_imgs[0]] * bent
 
 		outs.extend(ideal_subset)
 		inps.extend(bent_subset)
@@ -476,21 +490,54 @@ def imgids_to_imgs(imgids, deform='small'):
 	pf("iset shape:", iset.shape)
 	return iset
 
-def train_angles(model, count, viewskip, epochs):
-	iterations = 0
-	total_train = 0
-	src_img_bundle=1     # Img IDs correspond to sets of words on pages, each with
+def test_imgs(count=-1):
+	iteration = 0
+	pf("Images in img_ids_test", len(img_ids_test))
+	pf(img_ids_test)
+	while count < -1 or iteration < count:
+		iteration += 1
+		valximgids,valyimgids = get_random_imgid_bundles(img_ids_test, unique=5, ideal=1, bent=1)
+		xval=imgids_to_imgs(valximgids, deform='small')
+		yval=imgids_to_imgs(valyimgids, deform='none')
+		bsize = len(xval)
+		pf("xval shape", xval.shape)
+	
+		# evaluate the model
+		scores = model.evaluate(xval, yval, batch_size=bsize, verbose=1)
+		print("%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
+		prediction = model.predict(xval, batch_size=bsize, verbose=1)
+		for i in range(0, 0):
+			view_img("(VIn"+str(i)+")", xval[i][0], show=True)
+			view_img("(VPred)", prediction[i][0])
+
+def view_weights(model, name=None):
+	if name == None:
+		raise ValueError("Call with layer")
+	layer = model.get_layer(name)
+	weights = layer.get_weights()
+	pf(weights[1])
+
+def train_angles(model, loopsets, viewskip, epochs):
+	# For every src_img_bundle (unique set of word-pages), we create a number
+	# of pairs (one for each bent_img_bundle).
+	# Really it's for every ideal_img_bundle too, but we currently make only one
+	# ideal image.  Nevertheless, it results in bundles of size:
+	# src_img_bundle * ideal_img_bundle * bent_img_bundle
+	src_img_bundle=10    # Img IDs correspond to sets of words on pages, each with
 	                     #  some number of ideal flat images (only 1 right now), and
 						 #  some number of bent images
 	ideal_img_bundle=1   # We only have 1 flat page right now
 	bent_img_bundle=95   # Bunch of these
 	train_epochs=epochs
-	valfrac=.5
+	valfrac=.3           # When used (it's not right now), this is the fraction of
+	                     # the set to reserve for validating the model's results
+	iterations = 0
+	total_train = 0
 	valximgids,valyimgids = get_random_imgid_bundles(img_ids_test, 10, 1, 1)
 	xval=imgids_to_imgs(valximgids, deform='small')
 	yval=imgids_to_imgs(valyimgids, deform='none')
 
-	while iterations < count:
+	while iterations < loopsets:
 		iterations += 1
 		ximgids,yimgids = get_random_imgid_bundles(img_ids_train, src_img_bundle, ideal_img_bundle, bent_img_bundle)
 		bsize=len(ximgids)
@@ -508,10 +555,31 @@ def train_angles(model, count, viewskip, epochs):
 		#pf(len(valximgids), len(valyimgids))
 		#exit(0)
 		pf("model.fit() batchsize(", bsize, ")*epochs(", train_epochs, ") = ", bsize*train_epochs, sep='')
+
+		#pf("Viewing intermediates:")
+		#view_angles = model_view_angles.predict(x, batch_size=bsize, verbose=1)
+		#view_img("ViewAng", view_angles[0][0])
+		#view_angles = model_view_imgdata.predict(x, batch_size=bsize, verbose=1)
+		#view_img("ViewIMG", view_angles[0][0])
+		#view_weights(model, name="imgdata")
+		#pre_weights = model.get_layer("imgdata").get_weights()[1]
 		history = model.fit(x, y, validation_data=(xval,yval), batch_size=bsize, nb_epoch=train_epochs, verbose=1)
+		#post_weights = model.get_layer("imgdata").get_weights()[1]
 		pf("/model.fit()")
+		#view_weights(model, name="imgdata")
+		#pf(pre_weights)
+		#pf(post_weights)
+		#exit(0)
+
 		total_train += bsize*train_epochs
 		#if not (total_train % (bsize*10)):
+
+		#pf("Viewing intermediates:")
+		#view_angles = model_view_angles.predict(x, batch_size=bsize, verbose=1)
+		#view_img("ViewAng", view_angles[0][0])
+		#view_angles = model_view_imgdata.predict(x, batch_size=bsize, verbose=1)
+		#view_img("ViewIMG", view_angles[0][0])
+
 		if not iterations % viewskip:
 			pf("Total trainings:", total_train)
 			pf("Predicting:")
@@ -531,11 +599,12 @@ def train_angles(model, count, viewskip, epochs):
 			pf("Pred max: ", prediction[0][0].max())
 			#plt.hist(prediction[0][0], bins=256, range=(0.0, 1.0))
 			view_img("Ang #"+str(total_train), prediction[0][0])
+			test_imgs(2)
 			plt.show()
 			#exit(0)
 			pf("/Displaying prediction image")
 
-def train_bundles(model, count, viewskip, epochs):
+def train_bundles(model, loopsets, viewskip, epochs):
 	iterations = 0
 	total_train = 0
 	src_img_bundle=40    # Img IDs correspond to sets of words on pages, each with
@@ -545,9 +614,9 @@ def train_bundles(model, count, viewskip, epochs):
 	bent_img_bundle=45   # Bunch of these
 	train_epochs=epochs
 	valfrac=.5
-	while iterations < count:
+	while iterations < loopsets:
 		iterations += 1
-		ximgids,yimgids = get_random_imgid_bundles(img_ids_train, src_img_bundle, ideal_img_bundle, bent_img_bundle)
+		ximgids,yimgids = get_random_imgid_bundles(img_ids_train, unique=src_img_bundle, ideal=ideal_img_bundle, bent=bent_img_bundle)
 		bsize=len(ximgids)
 		pf("Bundle size:", bsize)
 		#exit(0)
@@ -555,7 +624,7 @@ def train_bundles(model, count, viewskip, epochs):
 		y=imgids_to_imgs(yimgids, deform='none')
 
 			# Validation set uses equal count of bent pages to source (ideal) images
-		valximgids,valyimgids = get_random_imgid_bundles(img_ids_test, int(ceil(src_img_bundle*valfrac)), int(ceil(ideal_img_bundle*valfrac)), 1)
+		valximgids,valyimgids = get_random_imgid_bundles(img_ids_test, unique=int(ceil(src_img_bundle*valfrac)), ideal=int(ceil(ideal_img_bundle*valfrac)), bent=1)
 		xval=imgids_to_imgs(valximgids, deform='small')
 		yval=imgids_to_imgs(valyimgids, deform='none')
 
@@ -563,8 +632,19 @@ def train_bundles(model, count, viewskip, epochs):
 		#pf(len(valximgids), len(valyimgids))
 		#exit(0)
 		pf("model.fit() batchsize(", bsize, ")*epochs(", train_epochs, ") = ", bsize*train_epochs, sep='')
+		#pre_weightsa = model.get_layer("angles").get_weights()[1]
+		#pre_weightsi = model.get_layer("imgdata").get_weights()[1]
 		history = model.fit(x, y, validation_data=(xval,yval), batch_size=bsize, nb_epoch=train_epochs, verbose=1)
-		pf("/model.fit()")
+		#post_weightsa = model.get_layer("angles").get_weights()[1]
+		#post_weightsi = model.get_layer("imgdata").get_weights()[1]
+		#pf("/model.fit()")
+		#pf("Angle weights")
+		#pf(pre_weightsa)
+		#pf(post_weightsa)
+		#pf("ImgData weights")
+		#pf(pre_weightsi)
+		#pf(post_weightsi)
+		#exit(0)
 		total_train += bsize*train_epochs
 		#if not (total_train % (bsize*10)):
 		if not iterations % viewskip:
@@ -702,48 +782,36 @@ def train_nn(model):
 							#scores = model.evaluate(in_batch,out_batch)
 							#pf("\033[33;1m%s: %.2f%%\033[0m" % (model.metrics_names[1], scores[1]*100))
 
+def save_weight_sets():
+	if save_weights:
+		model.save_weights(weight_store_imgdata)
+		model_train_angles.save_weights(weight_store_angles)
+		pf("Saved weights.")
+
 datagen_input, datagen_output = init()
 load_imgnames()
-model, model_train_angles = create_nn2()
+model, model_train_angles, model_view_angles, model_view_imgdata = create_nn2()
+if opt_run_test:
+	test_imgs()
+	exit(0)
+
 runs=0
-ang_epochs=100
-bund_epochs=5
+ang_epochs=1
+bund_epochs=1
+train_angles(model_train_angles, loopsets=2, viewskip=1, epochs=1)
+save_weight_sets()
 while True:
 	runs += 1
 	pf("=========================================================================")
 	pf("Runs:", runs, " Angle-epochs:", ang_epochs, " Imgdata-epochs:", bund_epochs)
-	train_angles(model_train_angles, count=4, viewskip=2, epochs=ang_epochs)
-	train_bundles(model, count=4, viewskip=2, epochs=bund_epochs)
+	train_bundles(model, loopsets=1, viewskip=1, epochs=bund_epochs)
+	save_weight_sets()
+	train_angles(model_train_angles, loopsets=1, viewskip=1, epochs=ang_epochs)
+	save_weight_sets()
 
-	if ang_epochs > 1000: ang_epochs = int(ang_epochs*1.01)
-	else: ang_epochs = ang_epochs+25
-	model.save_weights(weight_store_imgdata)
-	model_train_angles.save_weights(weight_store_angles)
-	pf("Saved weights.")
+	#ang_epochs = int(math.tanh(runs/100)*1000+150)
+	
 sys.exit(0)
 
-#onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
-
-# load pima indians dataset
-dataset = np.loadtxt("pima-indians-diabetes.data.csv", delimiter=",")
-# split into input (X) and output (Y) variables
-X = dataset[:,0:8]
-Y = dataset[:,8]
-
-compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-# Fit the model
-model.fit(X, Y, nb_epoch=150, batch_size=10)
-
-# evaluate the model
-scores = model.evaluate(X, Y)
-pf("%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
-
-# calculate predictions
-predictions = model.predict(X)
-
-# round predictions
-rounded = [round(x) for x in predictions]
-pf(rounded)
 
 # vim:ts=4 ai

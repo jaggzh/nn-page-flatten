@@ -8,6 +8,7 @@ my @words;
 my $maxlines = 4;
 my $maxwidth = 6;
 my $setcount = 1000;
+my $opt_words_per_page = 1;
 
 open($df, "<", $dictfile) || die "Can't open dict: $dictfile: $!";
 while (<$df>) {
@@ -22,10 +23,18 @@ for my $i (0 .. $setcount-1) {
 	my $done = 0;
 	my $str="";
 	my @wordset;
-	while (@wordset < $maxlines) {
+	if ($opt_words_per_page == $maxlines) {
+		while (@wordset < $maxlines) {
+			my $w;
+			$w = $words[int(rand(scalar @words))];
+			push(@wordset, $w);
+		}
+	} else {
 		my $w;
 		$w = $words[int(rand(scalar @words))];
-		push(@wordset, $w);
+		my $off = int(rand($maxlines));
+		@wordset = ("") x $maxlines;
+		$wordset[$off] = $w;
 	}
 	$str = join("\\n", @wordset);
 	print $str, "\n";
