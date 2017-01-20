@@ -1,11 +1,13 @@
 #!/usr/bin/python
 from __future__ import print_function # For eprint
 from keras.models import Sequential, Model # , load_weights, save_weights
-from keras.layers import Dense, merge, Reshape, UpSampling2D, Flatten, Convolution2D, Deconvolution2D, MaxPooling2D, Input, ZeroPadding2D
+from keras.layers import Dense, merge, Reshape, UpSampling2D, Flatten, Convolution2D, MaxPooling2D, Input, ZeroPadding2D, Activation, Dropout
+#from keras.layers import Deconvolution2D
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 from keras.utils.layer_utils import print_summary
 from keras.optimizers import Adam, SGD
 from keras.callbacks import ModelCheckpoint
+#from STL.SpatialTransformer import *
 import numpy as np
 import sys
 from os import listdir
@@ -23,6 +25,7 @@ from math import ceil
 import math
 from keras.callbacks import EarlyStopping
 import shutil
+#from seya.layers.attention import SpatialTransformer, ST2
 
 convact='tanh'
 
@@ -55,26 +58,21 @@ def get_linux_terminal():
 		#	cr = (25, 80)
 	return int(cr[1]), int(cr[0])
 
-#sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-
-#from keras.datasets import cifar10
-#(X_train, y_train), (X_test, y_test) = cifar10.load_data()
-#pf(X_train)
-#sys.exit(0)
-
+input_shape = None
 weight_store_imgdata = "weights-imgdata.h5"
 weight_store_angles = "weights-angles.h5"
 weight_store_angles_minloss = "weights-angles-minloss.h5"
 bent_dir = "blend/pages-64"
 ideal_dir = "blend/ideal-64"
 img_ids_train=[]
+img_ids_valid=[]
 img_ids_test=[]
 verbose=0
 show_images=1
-datagen_input=None
-datagen_output=None
-img_width=64
-img_height=64
+dim = 64
+indimx = indimy = 64
+img_width=dim
+img_height=dim
 max_imagesets=1000 # imageset = Each unique page of words (bent or flat) (-1 is unlimited)
 #max_main_imgloops = 100 # Number of times to loop through entire set of images
 train_epochs=1
@@ -82,7 +80,8 @@ out_batch_versions=3 # number of distorted images to feed in
 in_batch_versions=3 # number of distorted images to feed in
 load_weights=1      # load prior run stored weights
 save_weights=1      # load prior run stored weights
-test_fraction = .07  # Percentage (well.. fraction) of the data set for the test set
+test_fraction = .07  # fraction of the data set for the test set
+valid_fraction = .07  # fraction of the data set for the validation set
 whichsubplot = -1
 axs = None
 fig = None
@@ -114,10 +113,13 @@ def load_imgnames():
 			                    # ...corresponding to valid ideal_image dir
 			if not isdir(join(ideal_dir, name)):
 				eprint("Dir " + name + " not in ideal folder: " + ideal_dir)
-			if random.random() > test_fraction:
-				img_ids_train.append(name)
-			else:
+			r = random.random()
+			if r < test_fraction:
 				img_ids_test.append(name)
+			elif r < test_fraction + valid_fraction:
+				img_ids_valid.append(name)
+			else:
+				img_ids_train.append(name)
 		if max_imagesets > 0 and i > max_imagesets:
 			break
 def init():
@@ -131,30 +133,30 @@ def init():
 	random.seed(seed)
 	np.random.seed(seed)
 	np.set_printoptions(threshold=64, linewidth=termwidth-1, edgeitems=3)
-	datagen_input = ImageDataGenerator(
-		rotation_range=0,
-		width_shift_range=0.09,
-		height_shift_range=0.09,
-		shear_range=0,
-		zoom_range=0.1,
-		horizontal_flip=False,
-		fill_mode='nearest')
-		#featurewise_center=True,
-		#featurewise_std_normalization=True)
-	datagen_output = ImageDataGenerator(
-		rotation_range=0,
-		width_shift_range=0.09,
-		height_shift_range=0.09,
-		shear_range=0,
-		zoom_range=0.1,
-		horizontal_flip=False,
-		fill_mode='nearest')
-		#featurewise_center=True,
-		#featurewise_std_normalization=True)
+#	datagen_input = ImageDataGenerator(
+#		rotation_range=0,
+#		width_shift_range=0.09,
+#		height_shift_range=0.09,
+#		shear_range=0,
+#		zoom_range=0.1,
+#		horizontal_flip=False,
+#		fill_mode='nearest')
+#		#featurewise_center=True,
+#		#featurewise_std_normalization=True)
+#	datagen_output = ImageDataGenerator(
+#		rotation_range=0,
+#		width_shift_range=0.09,
+#		height_shift_range=0.09,
+#		shear_range=0,
+#		zoom_range=0.1,
+#		horizontal_flip=False,
+#		fill_mode='nearest')
+#		#featurewise_center=True,
+#		#featurewise_std_normalization=True)
 	early_stopping_ang = EarlyStopping(monitor='val_loss', patience=10)
 	early_stopping_img = EarlyStopping(monitor='val_loss', patience=10)
 	checkpoint_low_loss = ModelCheckpoint(filepath=weight_store_angles_minloss, verbose=1, save_best_only=True, save_weights_only=True)
-	return datagen_input, datagen_output
+	#return datagen_input, datagen_output
 def imgset_from_dir(dir, id):
 	imgset=[]
 	imgdir=join(dir, id)
@@ -199,55 +201,117 @@ def create_nn_test():
 	#model.compile(loss='mean_absolute_error', optimizer='adam', metrics=['accuracy'])
 	return model
 
-def create_nn2():
+def stn_prep_data():
+	global input_shape
+	global x_train, y_train, x_valid, y_valid, x_test, y_test
+	ximgids,yimgids = make_imgid_bundles(img_ids_train)
+	valximgids,valyimgids = make_imgid_bundles(img_ids_valid)
+	testximgids,testyimgids = make_imgid_bundles(img_ids_test)
+
+	x_train=imgids_to_imgs(ximgids, deform='small')
+	y_train=imgids_to_imgs(yimgids, deform='none')
+	x_valid=imgids_to_imgs(valximgids, deform='small')
+	y_valid=imgids_to_imgs(valyimgids, deform='none')
+	x_test=imgids_to_imgs(testximgids, deform='small')
+	#y_test=imgids_to_imgs(testyimgids, deform='none')
+	y_test=np.zeros(x_test.shape)
+	input_shape = x_train.shape[1:]
+
+def stl_matrix():
+	w = np.zeros((20, 6))
+	b = np.zeros((6,))
+	b[0] = 1.
+	b[4] = 1.
+	return [w,b]
+	#b = np.zeros((2, 3), dtype='float32')
+	#b[0, 0] = 1
+	#b[1, 1] = 1
+	#W = np.zeros((50, 6), dtype='float32')
+	#weights = [W, b.flatten()]
+def create_nn_stn():
+	global input_shape
+	global x_train, y_train, x_valid, y_valid, x_test, y_test
 	act='tanh'
 
-	inputs = Input(shape = (1, img_width, img_height))
-	pf("input(): ", sep='', end=''); show_shape(inputs, inputs)
+#	locnet = Input(shape = (1, img_width, img_height))
+#	locnet = MaxPooling2D(pool_size=(2,2), input_shape=input_shape)(locnet) # 64 -> 32
+#	locnet = Convolution2D(20, 5, 5)(locnet)
+#	locnet = MaxPooling2D(pool_size=(2,2))(locnet) # -> 16
+#	locnet = Convolution2D(20, 5, 5)(locnet)
+#	locnet = MaxPooling2D(pool_size=(2,2))(locnet) # -> 8
+#	locnet = Convolution2D(20, 5, 5)(locnet)
+#	locnet = Flatten()(locnet)
+#	locnet = Dense(50)(locnet)
+#	locnet = Activation('relu')(locnet)
+#	locnet = Dense(6, weights=weights)(locnet)
+	#	#locnet.add(Activation('sigmoid'))
+	input = Input(shape=(3, indimy, indimx))
+	# 64
+	x = Convolution2D(32, 3, 3)(x)
 
-	x = Flatten()(inputs)
-	pf("flatten(): ", sep='', end=''); show_shape(inputs, x)
+	x = MaxPooling2D(pool_size=(2,2))(x)
+	# 32
+	x = Convolution2D(80, 3, 3)(x)
 
-	angles = Dense(28, activation=act, name="angles1")(x)
-	angles = Dense(28, activation=act, name="angles")
-	pf("dense(28:16:28)::: ", sep='', end='');
-	imgdata = Dense(1024, activation=act, name="imgdata")
-	pf("dense(1024)::: ", sep='', end='');
+	x = MaxPooling2D(pool_size=(2,2))(x)
+	# 16
+	x = Convolution2D(160, 3, 3)(x)
 
-	angles_called = angles(x)
-	imgdata_called = imgdata(x)
+	x = MaxPooling2D(pool_size=(2,2))(x)
+	# 8
+	x = Convolution2D(20, 3, 3)(x)
 
-	joined = merge([angles_called, imgdata_called], mode='concat', concat_axis=1)
+	x = MaxPooling2D(pool_size=(2,2))(x)
+	# 4
+	x = Convolution2D(20, 3, 3)(x)
+	x = Flatten()(x)
 
-	x = Dense(img_height*img_width, activation=act)(joined)
-	pf("dense(", img_height*img_width, "): ", sep='', end=''); show_shape(inputs, x)
+	x = Dense(10)(x)
+	matrix = Dense(6, weights=stl_matrix())(x)
+	trans = SpatialTransformerLayer(downsample_factor=1.0)([input, x])
 
-	x = Reshape((1,img_height,img_width))(x)
-	pf("reshape(", (1, img_width, img_height), "): ", sep='', end=''); show_shape(inputs, x)
+	model = Model(input=input, output=[trans, matrix])
 
-	outputs=x
-	model_train_angles = Model(input=inputs, output=outputs)
-	model = Model(input=inputs, output=outputs)
-	pf(model.summary())
-	pf("final prediction: ", sep='', end=''); show_shape(inputs, x)
+	model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+	#model.compile(loss='mean_absolute_error', optimizer='adam', metrics=['accuracy'])
+	return model
 
-	pf("Compiling models")
-	#sgd=SGD(lr=0.1, momentum=0.000, decay=0.0, nesterov=False)
+def train_stn(model, imgsets, bentvers, loopsets, viewskip, epochs):
+	#XX = model.get_input()
+	#YY = model.layers[0].get_output()
+	#F = theano.function([XX], YY)
+	global x_train, y_train, x_valid, y_valid, x_test, y_test
 
-	opt=Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+	nb_epochs = 1000 # you probably want to go longer than this
+	batch_size = 256
+	#try:
+	for e in range(nb_epochs):
+		print('-'*40)
+		#progbar = generic_utils.Progbar(x_train.shape[0])
+		for b in range(x_train.shape[0]/batch_size):
+			f = b * batch_size
+			l = (b+1) * batch_size
+			x_batch = x_train[f:l] # .astype('float32')
+			y_batch = y_train[f:l] # .astype('float32')
+			loss = model.train_on_batch(x_batch, y_batch)
+			#progbar.add(x_batch.shape[0], values=[("train loss", loss)])
+		#scorev = model.evaluate(x_valid, y_valid, show_accuracy=True, verbose=0)[1]
+		#scoret = model.evaluate(x_test, y_test, show_accuracy=True, verbose=0)[1]
+		scorev = model.evaluate(x_valid, y_valid, verbose=1)[1]
+		scoret = model.evaluate(x_test, y_test, verbose=1)[1]
+		y_test = model.predict(x_test, batch_size=x_test.shape[0], verbose=1)
+		print('Epoch: {0} | Valid: {1} | Test: {2}'.format(e, scorev, scoret))
 
-	angles.trainable = False
-	imgdata.trainable = True
-	model.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
-	angles.trainable = True
-	imgdata.trainable = False
-	model_train_angles.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
-	pf("Loading weights")
-	if load_weights and isfile(weight_store_imgdata):
-		model.load_weights(weight_store_imgdata)
-	if load_weights and isfile(weight_store_angles):
-		model_train_angles.load_weights(weight_store_angles)
-	return model, model_train_angles
+		if e % 50 == 0:
+			#xresult = F(x_batch[:9])
+			#for i in range(9):
+			#	view_img(Xresult[i, 0])
+			#xresult = y_batch[i][0]
+			view_img("x"+str(e), x_test[0][0])
+			view_img("y"+str(e), y_test[0][0])
+	#except KeyboardInterrupt:
+	#	pass
+
 
 def create_nn():
 	global activation
@@ -406,6 +470,33 @@ def get_rand_sampling(array, count):
 	#pf("Rand subset:", ret)
 	return ret
 	
+def make_imgid_bundles(imgs, unique=1, ideal=1, bent=1):
+	inps=[]
+	outs=[]
+	if ideal > 1:
+		pf("get_random_imgid_bundles(): Error: ideal count can only be 1 for now")
+		exit(0)
+	#pf("Loading image bundles (", unique*bent, ")", sep="");
+	id_set = imgs
+	#pf("Loading img ids (count:", len(id_set))
+	#exit(0)
+	for imgid in id_set:
+		ideal_imgs = imgset_ideal(imgid)
+		bent_imgs = imgset_bent(imgid)
+
+		bent_subset = get_rand_sampling(bent_imgs, bent)
+		#pf("Bent:", bent_subset)
+
+		# We only have one ideal image per imgid right now, so we repeat it 10 times
+		ideal_subset = [ideal_imgs[0]] * bent
+
+		outs.extend(ideal_subset)
+		inps.extend(bent_subset)
+	#for i in range(0, len(inps)):
+		#pf("[",i,"] ", inps[i], " -> ", outs[i], sep='')
+	#pf("/Loading image bundles")
+	return inps, outs
+
 def get_random_imgid_bundles(imgs, unique=1, ideal=1, bent=1):
 	inps=[]
 	outs=[]
@@ -503,9 +594,9 @@ def test_imgs(count=1):
 	pf(img_ids_test)
 	while iteration < count:
 		iteration += 1
-		valximgids,valyimgids = get_random_imgid_bundles(img_ids_test, unique=5, ideal=1, bent=1)
-		xval=imgids_to_imgs(valximgids, deform='small')
-		yval=imgids_to_imgs(valyimgids, deform='none')
+		ximgids,yimgids = get_random_imgid_bundles(img_ids_test, unique=5, ideal=1, bent=1)
+		xval=imgids_to_imgs(ximgids, deform='small')
+		yval=imgids_to_imgs(yimgids, deform='none')
 		bsize = len(xval)
 		pf("xval shape", xval.shape)
 	
@@ -603,6 +694,84 @@ def train_angles(model, imgsets, bentvers, loopsets, viewskip, epochs):
 			#exit(0)
 			pf("/Displaying prediction image")
 
+def create_nn2():
+	act='tanh'
+
+	inputs = Input(shape = (1, img_width, img_height))
+	x = inputs
+
+	# 64
+	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
+	d64 = x
+
+	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
+	# 32
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	d32 = x
+	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
+	# 16
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
+	# 8
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	#x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
+	# 4
+	x = Flatten()(x)
+	x = Dense(64)(x)
+	x = Dense(64)(x)
+	#x = Reshape((1,4,4))(x)
+
+	#x = Convolution2D(256, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	## 4
+	#x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
+
+	x = Reshape((1,8,8))(x)
+	# 8
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+
+	x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
+	# 16
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+
+	x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
+	# 32
+	x = merge([x, d32], mode='concat', concat_axis=1)
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+
+	x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
+	# 64
+	x = merge([x, d64], mode='concat', concat_axis=1)
+	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
+
+	x = Convolution2D(1, 3, 3, activation='tanh', border_mode='same', subsample=(1,1))(x)
+
+	#joined = merge([angles_called, imgdata_called], mode='concat', concat_axis=1)
+
+	model = Model(input=inputs, output=x)
+	pf(model.summary())
+	pf("final prediction: ", sep='', end=''); show_shape(inputs, x)
+
+	pf("Compiling models")
+	#sgd=SGD(lr=0.1, momentum=0.000, decay=0.0, nesterov=False)
+
+	opt=Adam(lr=0.000025, beta_1=0.5, beta_2=0.999, epsilon=1e-08, decay=0.0)
+
+	#model.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
+	model.compile(loss='mae', optimizer=opt, metrics=['accuracy'])
+
+	pf("Loading weights")
+	if load_weights and isfile(weight_store_imgdata):
+		model.load_weights(weight_store_imgdata)
+	return model
+
 def train_bundles(model, imgsets, bentvers, loopsets, viewskip, epochs):
 	global early_stopping_img
 	global checkpoint_low_loss
@@ -625,86 +794,73 @@ def train_bundles(model, imgsets, bentvers, loopsets, viewskip, epochs):
 		y=imgids_to_imgs(yimgids, deform='none')
 
 			# Validation set uses equal count of bent pages to source (ideal) images
-		valximgids,valyimgids = get_random_imgid_bundles(img_ids_test, unique=int(ceil(src_img_bundle*valfrac)), ideal=int(ceil(ideal_img_bundle*valfrac)), bent=1)
-		xval=imgids_to_imgs(valximgids, deform='small')
-		yval=imgids_to_imgs(valyimgids, deform='none')
+		#valximgids,valyimgids = get_random_imgid_bundles(img_ids_test, unique=int(ceil(src_img_bundle*valfrac)), ideal=int(ceil(ideal_img_bundle*valfrac)), bent=1)
+		#xval=imgids_to_imgs(valximgids, deform='small')
+		#yval=imgids_to_imgs(valyimgids, deform='none')
 
-		#pf(len(ximgids), len(yimgids))
+		pf(len(ximgids), len(yimgids))
 		#pf(len(valximgids), len(valyimgids))
 		#exit(0)
 		pf("model.fit() batchsize(", bsize, ")*epochs(", train_epochs, ") = ", bsize*train_epochs, sep='')
 		#pre_weightsa = model.get_layer("angles").get_weights()[1]
 		#pre_weightsi = model.get_layer("imgdata").get_weights()[1]
-		history = model.fit(x, y, validation_data=(xval,yval), batch_size=bsize, nb_epoch=train_epochs, verbose=1, callbacks=[checkpoint_low_loss, early_stopping_img])
-		#post_weightsa = model.get_layer("angles").get_weights()[1]
-		#post_weightsi = model.get_layer("imgdata").get_weights()[1]
-		#pf("/model.fit()")
-		#pf("Angle weights")
-		#pf(pre_weightsa)
-		#pf(post_weightsa)
-		#pf("ImgData weights")
-		#pf(pre_weightsi)
-		#pf(post_weightsi)
-		#exit(0)
+		#history = model.fit(x, y, validation_data=(xval,yval), batch_size=bsize, nb_epoch=train_epochs, verbose=1, callbacks=[checkpoint_low_loss])
+		history = model.fit(x, y, batch_size=bsize, nb_epoch=train_epochs, verbose=1, callbacks=[checkpoint_low_loss])
+		save_weight_sets()
 		total_train += bsize*train_epochs
 		#if not (total_train % (bsize*10)):
 		if not iterations % viewskip:
 			pf("Total trainings:", total_train)
-			pf("Predicting:")
-			prediction = model.predict(x, batch_size=bsize, verbose=1)
-			pf("/Predicting:")
-			pf("Displaying input image [0]")
-			pf("Shape of image we're about to display", y[0][0].shape)
-			#time.sleep(5)
-			view_img("(B Inp)", x[0][0], show=True)
-			view_img("(B Out)", y[0][0], show=True)
-			#view_img("(IVal)", xval[0][0], show=True)
-			#view_img("(B OVal)", yval[0][0], show=True)
-			#view_img("Bent (Input)", x[0][0], show=True)
-			pf("Displaying prediction image [0][0]")
-			pf(prediction[0][0])
-			pf("Pred min: ", prediction[0][0].min())
-			pf("Pred max: ", prediction[0][0].max())
-			#plt.hist(prediction[0][0], bins=256, range=(0.0, 1.0))
-			view_img("B pred #"+str(total_train), prediction[0][0])
-			plt.show()
-			#exit(0)
-			pf("/Displaying prediction image")
+			for i in range(5):
+				pf("Predicting:")
+				prediction = model.predict(x, batch_size=bsize, verbose=1)
+				pf("/Predicting:")
+				pf("Displaying input image [0]")
+				pf("Shape of image we're about to display", y[0][0].shape)
+				#time.sleep(5)
+				view_img("(B Inp)", x[0][0], show=True)
+				view_img("(B Out)", y[0][0], show=True)
+				#view_img("(IVal)", xval[0][0], show=True)
+				#view_img("(B OVal)", yval[0][0], show=True)
+				#view_img("Bent (Input)", x[0][0], show=True)
+				pf("Displaying prediction image [0][0]")
+				pf(prediction[0][0])
+				pf("Pred min: ", prediction[0][0].min())
+				pf("Pred max: ", prediction[0][0].max())
+				#plt.hist(prediction[0][0], bins=256, range=(0.0, 1.0))
+				view_img("B pred #"+str(total_train), prediction[0][0])
+				plt.show()
+				#exit(0)
+				pf("/Displaying prediction image")
 
 def save_weight_sets():
 	if save_weights:
 		model.save_weights(weight_store_imgdata)
-		model_train_angles.save_weights(weight_store_angles)
+		#model_train_angles.save_weights(weight_store_angles)
 		pf("Saved weights.")
 def load_low_loss_weights():
-	if load_weights:
+	if load_weights and isfile(weight_store_angles_minloss):
 		model.load_weights(weight_store_angles_minloss)
 
-datagen_input, datagen_output = init()
+init()
 load_imgnames()
-model, model_train_angles = create_nn2()
-if opt_run_test:
-	test_imgs()
-	pf('Press enter to quit...')
-	raw_input('')
-	exit(0)
-
 runs=0
 ang_epochs=2000
 bund_epochs=35
-#for imgsets, epochs in ((200,300,400,800), (10,20,40,100)):
-#for imgsets, epochs in ([800], [100]):
 imgsets = 800
 epochs = 100
+stn_prep_data()
+#model = create_nn_stn()
+#train_stn(model, imgsets=400, bentvers=50, loopsets=1, viewskip=1, epochs=epochs)
+model = create_nn2()
+#test_imgs(10)
+train_bundles(model, imgsets=5, bentvers=20, loopsets=100, viewskip=1, epochs=300)
+#for i in range(0, 20):
+	#epochs = 300
+	#load_low_loss_weights()
+	#train_bundles(model, imgsets=800, bentvers=5, loopsets=1, viewskip=1, epochs=epochs)
+	#load_low_loss_weights()
 #save_weight_sets()
-#exit(0)
-for i in range(0, 20):
-	epochs = 300
-	train_angles(model_train_angles, imgsets=400, bentvers=50, loopsets=1, viewskip=1, epochs=epochs)
-	load_low_loss_weights()
-	train_bundles(model, imgsets=800, bentvers=5, loopsets=1, viewskip=1, epochs=epochs)
-	load_low_loss_weights()
-save_weight_sets()
 #pf('Press CTRL-C to quit, ENTER to copy val_loss weights to active weights...')
 pf("Enter to close")
 inp=raw_input('')
@@ -713,7 +869,7 @@ inp=raw_input('')
 	#shutil.copyfile(weight_store_angles_minloss, weight_store_imgdata)
 	#shutil.copyfile(weight_store_angles_minloss, weight_store_angles)
 exit(0)
-while True:
+while False:
 	runs += 1
 	pf("=========================================================================")
 	pf("Runs:", runs, " Angle-epochs:", ang_epochs, " Imgdata-epochs:", bund_epochs)
