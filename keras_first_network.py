@@ -5,8 +5,10 @@ from keras.layers import Dense, merge, Reshape, UpSampling2D, Flatten, Convoluti
 #from keras.layers import Deconvolution2D
 from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 from keras.utils.layer_utils import print_summary
+from keras.layers.advanced_activations import LeakyReLU, PReLU
 from keras.optimizers import Adam, SGD
 from keras.callbacks import ModelCheckpoint
+import keras.initializations as inits
 #from STL.SpatialTransformer import *
 import numpy as np
 import sys
@@ -25,6 +27,7 @@ from math import ceil
 import math
 from keras.callbacks import EarlyStopping
 import shutil
+from keras import backend as K
 #from seya.layers.attention import SpatialTransformer, ST2
 
 convact='tanh'
@@ -425,7 +428,7 @@ def view_img(label, img, show=False):
 	pf("View img")
 	#img = mpimg.imread('stinkbug.png')
 	plotrows = 5
-	plotcols = 4
+	plotcols = 6
 	#show_images=0
 	if not show_images: return
 	#pf(img)
@@ -434,7 +437,7 @@ def view_img(label, img, show=False):
 		whichsubplot = 0
 	#pf(fig)
 	if fig is None:
-		fig,axs = plt.subplots(plotrows,plotcols,figsize=(7,9))
+		fig,axs = plt.subplots(plotrows,plotcols,figsize=(10,11))
 		plt.ion()
 		plt.pause(0.05) # Calls matplotlib's event loop
 		fig.subplots_adjust(hspace=0)
@@ -510,6 +513,7 @@ def get_random_imgid_bundles(imgs, unique=1, ideal=1, bent=1):
 	for imgid in id_set:
 		ideal_imgs = imgset_ideal(imgid)
 		bent_imgs = imgset_bent(imgid)
+		#bent_imgs = imgset_ideal(imgid)
 
 		bent_subset = get_rand_sampling(bent_imgs, bent)
 		#pf("Bent:", bent_subset)
@@ -571,15 +575,15 @@ def imgids_to_imgs(imgids, deform='small'):
 	if deform == 'none':
 		offset = 0.0
 	elif deform == 'small':
-		offset = .04  # 2/67 pixels right now
+		offset = .03  # 2/64 pixels right now
 	else:             # large
-		offset = .12  # 67*.12 = 8
+		offset = .12  # 64*.12
 	iset=[]
 	for imgid in imgids:
 		img = load_img(imgid, grayscale='True')
 		img = img_to_array(img)  # Numpy array with shape (1, width, height)
 		if normalize:
-			img = (img/255.0) - .5   # I guess we want -1 .. 1
+			img = (img/255.0)
 		img = randdeform(img, xoffset=offset, yoffset=offset, fill=0)
 		#img = img.reshape((1,) + img.shape)  # Numpy array with shape (1, 1, w, h)
 		#pf("Image", imgid, "Shape:", img.shape)
@@ -701,27 +705,36 @@ def create_nn2():
 	x = inputs
 
 	# 64
-	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Dropout(.05)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
 	d64 = x
 
 	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
 	# 32
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Dropout(.05)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
 	d32 = x
 	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
 	# 16
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Dropout(.05)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	d16 = x
 	x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
 	# 8
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Dropout(.01)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
 	#x = MaxPooling2D((2,2), border_mode='same', dim_ordering='th')(x)
 	# 4
 	x = Flatten()(x)
-	x = Dense(64)(x)
+	x = Dense(20)(x)
 	x = Dense(64)(x)
 	#x = Reshape((1,4,4))(x)
 
@@ -729,54 +742,96 @@ def create_nn2():
 	## 4
 	#x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
 
+	transform_params = Dense(64, name="xform", init='zero')(x)
+	transform_params = Reshape((1,8,8))(transform_params)
+
 	x = Reshape((1,8,8))(x)
 	# 8
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = merge([x,transform_params], mode='concat', concat_axis=1)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
 
 	x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
 	# 16
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	d16 = Dropout(.2)(d16)
+	x = merge([x, d16], mode='concat', concat_axis=1)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
 
 	x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
 	# 32
+	d32 = Dropout(.2)(d32)
 	x = merge([x, d32], mode='concat', concat_axis=1)
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 2, 2, activation='relu', border_mode='same', subsample=(1,1))(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
 
 	x = UpSampling2D(size=(2,2), dim_ordering='th')(x)
 	# 64
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	x = Convolution2D(32, 2, 2, border_mode='same')(x); x = LeakyReLU(alpha=.2)(x)
+	d64 = Dropout(.2)(d64)
 	x = merge([x, d64], mode='concat', concat_axis=1)
-	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
-	x = Convolution2D(64, 3, 3, activation='relu', border_mode='same', subsample=(1,1))(x)
-
-	x = Convolution2D(1, 3, 3, activation='tanh', border_mode='same', subsample=(1,1))(x)
-
-	#joined = merge([angles_called, imgdata_called], mode='concat', concat_axis=1)
-
-	model = Model(input=inputs, output=x)
-	pf(model.summary())
-	pf("final prediction: ", sep='', end=''); show_shape(inputs, x)
+	x = Convolution2D(1, 1, 1, border_mode='same')(x);  x = LeakyReLU(alpha=.2)(x)
+	x = Dropout(.01)(x)
+	x = Convolution2D(1, 1, 1, activation='tanh', border_mode='same', subsample=(1,1))(x)
 
 	pf("Compiling models")
+	#joined = merge([angles_called, imgdata_called], mode='concat', concat_axis=1)
+	model_xform_frozen = Model(input=inputs, output=x)
+	freeze_layers(model_xform_frozen, names=['xform'])
+	opt=Adam(lr=0.000025, beta_1=0.5, beta_2=0.999, epsilon=1e-08, decay=0.0)
+	model_xform_frozen.compile(loss='mse', optimizer=opt, metrics=['accuracy'])
+
+	model_xform_only = Model(input=inputs, output=x)
+	freeze_layers(model_xform_only, names=['xform'], invert=1)
+	freeze_layers(model_xform_only, names=['xform'], unfreeze=1)
+	opt=Adam(lr=0.00005, beta_1=0.5, beta_2=0.999, epsilon=1e-08, decay=0.0)
+	model_xform_only.compile(loss='mse', optimizer=opt, metrics=['accuracy'])
+
+	pf("\033[36;1mFrozen xform layer:\033[0m")
+	pf(model_xform_frozen.summary())
+	pf("\033[32;1mFrozen ALL but xform layer:\033[0m")
+	pf(model_xform_only.summary())
+
+	#pf("final prediction: ", sep='', end=''); show_shape(inputs, x)
+
 	#sgd=SGD(lr=0.1, momentum=0.000, decay=0.0, nesterov=False)
 
-	opt=Adam(lr=0.000025, beta_1=0.5, beta_2=0.999, epsilon=1e-08, decay=0.0)
 
 	#model.compile(loss='mean_squared_error', optimizer=opt, metrics=['accuracy'])
-	model.compile(loss='mae', optimizer=opt, metrics=['accuracy'])
 
 	pf("Loading weights")
 	if load_weights and isfile(weight_store_imgdata):
-		model.load_weights(weight_store_imgdata)
-	return model
+		model_xform_frozen.load_weights(weight_store_imgdata)
+	return model_xform_frozen, model_xform_only
 
-def train_bundles(model, imgsets, bentvers, loopsets, viewskip, epochs):
+def freeze_layers(model, names=[], indexes=[], unfreeze=False, invert=False):
+	un_msg = "Un-" if unfreeze else ""     # Marking untrainable or not
+	un_val = True if unfreeze else False   # Trainable or not
+	layers=model.layers
+	for i in range(len(layers)):
+		name=layers[i].name
+		layer=layers[i]
+		if not invert and (i in indexes):
+			pf(un_msg, "Freezing layer [", i, "] by index. Name=", name, sep='')
+			layer.trainable = un_val;
+		elif not invert and (name in names):
+			pf(un_msg, "Freezing layer [", i, "] by name. Name=", name, sep='')
+			layer.trainable = un_val;
+		elif invert and (not (name in names) and not (i in indexes)):
+			pf(un_msg, "Freezing layer [", i, "]. Name=", name, sep='')
+			layer.trainable = un_val;
+
+total_train = 0
+def train_bundles(model=None, imgsets=1, bentvers=1, loopsets=1, viewskip=1, epochs=1):
 	global early_stopping_img
 	global checkpoint_low_loss
+	global total_train
 	iterations = 0
-	total_train = 0
 	src_img_bundle=imgsets  # Img IDs correspond to sets of words on pages, each with
 	                     #  some number of ideal flat images (only 1 right now), and
 						 #  some number of bent images
@@ -784,13 +839,14 @@ def train_bundles(model, imgsets, bentvers, loopsets, viewskip, epochs):
 	bent_img_bundle=bentvers   # Bunch of these
 	train_epochs=epochs
 	valfrac=.2
+
 	while iterations < loopsets:
 		iterations += 1
 		ximgids,yimgids = get_random_imgid_bundles(img_ids_train, unique=src_img_bundle, ideal=ideal_img_bundle, bent=bent_img_bundle)
 		bsize=len(ximgids)
 		pf("Bundle size:", bsize)
 		#exit(0)
-		x=imgids_to_imgs(ximgids, deform='large')
+		x=imgids_to_imgs(ximgids, deform='none')
 		y=imgids_to_imgs(yimgids, deform='none')
 
 			# Validation set uses equal count of bent pages to source (ideal) images
@@ -805,35 +861,37 @@ def train_bundles(model, imgsets, bentvers, loopsets, viewskip, epochs):
 		#pre_weightsa = model.get_layer("angles").get_weights()[1]
 		#pre_weightsi = model.get_layer("imgdata").get_weights()[1]
 		#history = model.fit(x, y, validation_data=(xval,yval), batch_size=bsize, nb_epoch=train_epochs, verbose=1, callbacks=[checkpoint_low_loss])
+		#pf("xform.weights.w:", model.get_layer(name='xform').weights[0].eval())
+		#pf("xform.weights.b:", model.get_layer(name='xform').weights[1].eval())
+		#pf("xform.trainable:", model.get_layer(name='xform').trainable)
 		history = model.fit(x, y, batch_size=bsize, nb_epoch=train_epochs, verbose=1, callbacks=[checkpoint_low_loss])
-		save_weight_sets()
+		#pf("xform.trainable:", model.get_layer(name='xform').trainable)
+		#pf("xform.weights.w:", model.get_layer(name='xform').weights[0].eval())
+		#pf("xform.weights.b:", model.get_layer(name='xform').weights[1].eval())
+		save_weight_sets(model=model)
 		total_train += bsize*train_epochs
 		#if not (total_train % (bsize*10)):
 		if not iterations % viewskip:
 			pf("Total trainings:", total_train)
-			for i in range(5):
-				pf("Predicting:")
-				prediction = model.predict(x, batch_size=bsize, verbose=1)
-				pf("/Predicting:")
-				pf("Displaying input image [0]")
-				pf("Shape of image we're about to display", y[0][0].shape)
-				#time.sleep(5)
-				view_img("(B Inp)", x[0][0], show=True)
-				view_img("(B Out)", y[0][0], show=True)
+			pf("Predicting:")
+			prediction = model.predict(x, batch_size=bsize, verbose=1)
+			pf("/Predicting:")
+			pf("Displaying input image [0]")
+			pf("Shape of image we're about to display", y[0][0].shape)
+			#time.sleep(5)
+			for i in range(min(1,len(x))):
+				view_img("(Inp)", x[i][0], show=True)
+				view_img("(GndTrth)", y[i][0], show=True)
+				view_img("Pred #"+str(total_train), prediction[i][0])
 				#view_img("(IVal)", xval[0][0], show=True)
 				#view_img("(B OVal)", yval[0][0], show=True)
 				#view_img("Bent (Input)", x[0][0], show=True)
-				pf("Displaying prediction image [0][0]")
-				pf(prediction[0][0])
-				pf("Pred min: ", prediction[0][0].min())
-				pf("Pred max: ", prediction[0][0].max())
 				#plt.hist(prediction[0][0], bins=256, range=(0.0, 1.0))
-				view_img("B pred #"+str(total_train), prediction[0][0])
 				plt.show()
 				#exit(0)
 				pf("/Displaying prediction image")
 
-def save_weight_sets():
+def save_weight_sets(model=None):
 	if save_weights:
 		model.save_weights(weight_store_imgdata)
 		#model_train_angles.save_weights(weight_store_angles)
@@ -841,6 +899,21 @@ def save_weight_sets():
 def load_low_loss_weights():
 	if load_weights and isfile(weight_store_angles_minloss):
 		model.load_weights(weight_store_angles_minloss)
+
+def set_layer_weights(model=None, layer=None, weights=None):
+	for mlayer in (model.layers):
+		if mlayer.name == layer:
+			pf("Setting weights for layer: ", layer)
+			mlayer.set_weights(weights)
+def post_init_layer_weights(model=None, name=None, index=None, init=None):
+	lay = model.get_layer(name=name, index=index)
+	if not lay: raise ValueError("Model missing requested layer")
+	wb = lay.get_weights()       # Weights and biases
+	ww_shape = wb[0].shape
+	wb_shape = wb[1].shape
+	warr = np.asarray(init(shape=ww_shape, name='weights').eval())
+	wbia = np.asarray(init(shape=wb_shape, name='biases').eval())
+	lay.set_weights([warr, wbia])
 
 init()
 load_imgnames()
@@ -852,13 +925,22 @@ epochs = 100
 stn_prep_data()
 #model = create_nn_stn()
 #train_stn(model, imgsets=400, bentvers=50, loopsets=1, viewskip=1, epochs=epochs)
-model = create_nn2()
+model_xform_frozen, model_xform_only = create_nn2()
 #test_imgs(10)
-train_bundles(model, imgsets=5, bentvers=20, loopsets=100, viewskip=1, epochs=300)
-#for i in range(0, 20):
-	#epochs = 300
+
+# Doesn't matter which model is used, since the layer weights should be shared
+initial_training = 1
+if initial_training:
+	post_init_layer_weights(model_xform_only, name='xform', init=inits.uniform)
+	pf("\033[33;1mTraining image data\033[0m")
+	train_bundles(model=model_xform_frozen, imgsets=3, bentvers=10, loopsets=5, viewskip=1, epochs=100)
+	
+for i in range(0, 200):
+	pf("\033[32;1mTraining transform data\033[0m")
+	train_bundles(model=model_xform_only, imgsets=1, bentvers=30, loopsets=10, viewskip=1, epochs=200)
+	pf("\033[33;1mTraining image data\033[0m")
+	train_bundles(model=model_xform_frozen, imgsets=3, bentvers=10, loopsets=1, viewskip=1, epochs=100)
 	#load_low_loss_weights()
-	#train_bundles(model, imgsets=800, bentvers=5, loopsets=1, viewskip=1, epochs=epochs)
 	#load_low_loss_weights()
 #save_weight_sets()
 #pf('Press CTRL-C to quit, ENTER to copy val_loss weights to active weights...')
